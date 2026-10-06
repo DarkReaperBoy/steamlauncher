@@ -218,7 +218,7 @@ Add the flake as an input:
 ```nix
 {
   inputs = {
-    nix-crab.url = "github:YOUR_GITHUB_USER/steam-launcher";  # or path:/home/you/steam-launcher
+    nix-crab.url = "github:DarkReaperBoy/steamlauncher";  # or path:/home/you/steamlauncher
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
 }
