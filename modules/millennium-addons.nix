@@ -3,7 +3,8 @@
   lib,
   pkgs,
   ...
-}: let
+}:
+let
   cfg = config.programs.nix-crab.millennium;
 
   # The two live apart on Linux: plugins follow MILLENNIUM__PLUGINS_PATH from
@@ -16,15 +17,18 @@
 
   # An empty ID would make the store lookup match the first entry in the index
   # (`startswith("")` is true for everything) and install a random addon.
-  ids = list:
-    lib.warnIf (lib.elem "" list) "nix-crab: ignoring an empty ID in programs.nix-crab.millennium"
-    (lib.filter (id: id != "") list);
-in {
+  ids =
+    list:
+    lib.warnIf (lib.elem "" list) "nix-crab: ignoring an empty ID in programs.nix-crab.millennium" (
+      lib.filter (id: id != "") list
+    );
+in
+{
   options.programs.nix-crab.millennium = {
     plugins = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [];
-      example = ["3dc714a7c1b1"];
+      default = [ ];
+      example = [ "3dc714a7c1b1" ];
       description = ''
         Millennium plugin IDs from https://steambrew.app/plugins -- the `id` in
         a plugin's store URL (https://steambrew.app/plugin/<id>). Each one is
@@ -35,8 +39,11 @@ in {
 
     themes = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [];
-      example = ["1wwKwvHrFuzMs7Kb1Uzu" "Adwaita"];
+      default = [ ];
+      example = [
+        "1wwKwvHrFuzMs7Kb1Uzu"
+        "Adwaita"
+      ];
       description = ''
         Millennium theme IDs from https://steambrew.app/themes -- the `id` in a
         theme's store URL (https://steambrew.app/theme/<id>), or the theme's
@@ -56,8 +63,14 @@ in {
     # release. Same trade-off as steamidra. Real directories, not store
     # symlinks -- Millennium writes into these folders (settings, its own
     # updater) and cannot write into /nix/store.
-    home.activation.millenniumAddons = lib.hm.dag.entryAfter ["writeBoundary"] ''
-      export PATH="${lib.makeBinPath [pkgs.curl pkgs.jq pkgs.unzip]}:$PATH"
+    home.activation.millenniumAddons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      export PATH="${
+        lib.makeBinPath [
+          pkgs.curl
+          pkgs.jq
+          pkgs.unzip
+        ]
+      }:$PATH"
 
       stampDir="${stampDir}"
 

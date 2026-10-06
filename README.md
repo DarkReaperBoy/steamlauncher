@@ -3,8 +3,11 @@
 > Updated continuation of [ItszFinn/nix-crab](https://github.com/ItszFinn/nix-crab) (upstream inactive
 > since 2026-09): refreshed inputs, the dead `dgsc`/`dlm` and stale-hash URLs fixed, GCC 16 build fix
 > for slsteam-moon, current Millennium/NixOS module APIs, and the SLSsteam config reworked from a
-> typed-module-plus-hardcoded-defaults scheme into a single freeform `settings` option (see
+> typed-module-plus-hardcoded-defaults scheme into **typed per-key options** (see
 > [SLSsteam configuration](#slssteam-configuration)).
+>
+> Every piece of software is both a **package** (`nix build .#<name>`) and an **option** (default
+> **off** — import the module, then enable what you want). Nothing installs itself.
 
 Declarative [h3adcr-b](https://github.com/Deadboy666/h3adcr-b/)-equivalent for NixOS.
 Installs and wires up [SLSsteam](https://github.com/AceSLS/SLSsteam) (play unlocked/not-owned games),
@@ -46,7 +49,161 @@ endpoint.
 - **Zero-maintenance updates** — by default the Steam client is _not_ frozen: it follows updates on its
   own, and SLSsteam/CloudRedirect/netsock can be updated instantly by running `nix flake update` in your own configuration.
 
+## Packages
+
+Everything this flake can install, as a `packages` output — no module needed, nothing enabled by
+default:
+
+| Package                  | What it is                                                              | Build / run                                   |
+| ------------------------ | ----------------------------------------------------------------------- | --------------------------------------------- |
+| `accela` *               | ACCELA depot downloader (Qt-clean AppImage launcher)                    | `nix build .#accela`                          |
+| `SLSsteam`               | Steam with SLSsteam `LD_AUDIT` baked in (both `steam` + `SLSsteam` cmds) | `nix profile install .#SLSsteam`              |
+| `sls-steam`              | `SLSsteam.so` + `library-inject.so` (upstream build)                    | `nix build .#sls-steam`                       |
+| `slsteam-moon`           | the LuaTools fork's `.so` pair, compiled from source (32-bit)           | `nix build .#slsteam-moon`                    |
+| `cloudredirect`          | upstream `cloud_redirect.so` (cloud-saves hook)                         | `nix build .#cloudredirect`                   |
+| `cloudredirect-moon`     | LuaTools hook (also scans `stplug-in`/`luaappids.yaml`)                 | `nix build .#cloudredirect-moon`              |
+| `cloudredirect-cli`      | `cloud_redirect_cli`                                                    | `nix build .#cloudredirect-cli`               |
+| `netsock`                | multiplayer-fix `.so` (per-game `LD_AUDIT`)                             | `nix build .#netsock`                         |
+| `steamidra`              | SteaMidra (SFF) launcher (downloads the AppImage on first run)          | `nix profile install .#steamidra`             |
+| `lumen`                  | LuaTools backend dist                                                   | `nix build .#lumen`                           |
+| `luatools`               | LuaTools plugin dist                                                    | `nix build .#luatools`                        |
+| `ticket-grabber`         | SLSsteam ticket grabber                                                 | `nix build .#ticket-grabber`                  |
+| `schema-grabber`         | SLSsteam schema grabber                                                 | `nix build .#schema-grabber`                  |
+| `nix-crab-status`        | diagnostics (`--json` for machines)                                     | `nix run .#nix-crab-status`                   |
+| `nix-crab-update`        | `flake update` + rebuild + status                                       | `nix run .#nix-crab-update`                   |
+| `nix-crab-downgrade`     | pin the Steam client to headcrab's build                                | `nix run .#nix-crab-downgrade`                |
+| `default`                | = `accela`                                                              | `nix build`                                   |
+
+\* packages that need Steam's unfree license are built with an `allowUnfreePredicate` scoped to
+`steam`/`steam-unwrapped` only — the rest of your config can stay `allowUnfree = false`.
+
+All of these are the *same derivations* the module options install (shared builders in `lib.nix`),
+so `nix build .#nix-crab-status` and enabling `tools.enable` give you bit-identical bits.
+
+## Options
+
+Everything is **off by default**. Import the module, then enable what you want:
+
+```nix
+# NixOS
+nixosModules.default  # programs.nix-crab.*
+# Home Manager
+homeModules.default   # programs.nix-crab.*
+```
+
+### `nixosModules.default`
+
+| Option                                   | Default | What it does |
+| ---------------------------------------- | ------- | ------------ |
+| `programs.nix-crab.slssteam.enable`      | off     | Inject upstream SLSsteam into the native Steam package (`LD_AUDIT` via `programs.steam` override). Implies `programs.steam.enable`. |
+| `programs.nix-crab.slssteam.extraEnv`    | `{}`    | Extra env vars merged into the Steam override (CloudRedirect's `LD_PRELOAD` uses this). |
+| `programs.nix-crab.slssteam-moon.enable` | off     | Inject [slsteam-moon](https://github.com/swwayps/slsteam-moon) (fork with Lua manifest importer) instead. Built from source; takes precedence over `slssteam.enable`. |
+| `programs.nix-crab.cloudredirect.enable` | off     | Enable CloudRedirect: Flatpak service + `LD_PRELOAD` to the pinned hook. Asserts an injection is also enabled. |
+| `programs.nix-crab.cloudredirect.moon.enable` | off | Use the [cloudredirect-moon](https://github.com/swwayps/cloudredirect-moon) hook (scans `stplug-in`/`luaappids.yaml`). Opt-in, LuaTools stack only. |
+| `programs.nix-crab.millennium.enable`    | off     | Apply the [Millennium](https://github.com/SteamClientHomebrew/Millennium) overlay and use `millennium-steam` as the Steam base (themes/plugins). Asserts mutual exclusion with `slssteam-moon`. |
+| `programs.nix-crab.downgrade.enable`     | off     | Add `nix-crab-downgrade` to `environment.systemPackages`. |
+| `programs.nix-crab.downgrade.package`    | built-in | Override the downgrade wrapper script. |
+
+### `homeModules.default`
+
+| Option                                    | Default | What it does |
+| ----------------------------------------- | ------- | ------------ |
+| `programs.nix-crab.slssteam.manageConfig` | off     | Nix owns `~/.config/SLSsteam/config.yaml` (fork default ⊕ `settings`). Off by default so SteaMidra & friends can edit it. |
+| `programs.nix-crab.slssteam.settings.*`   | all `null` | **Typed SLSsteam config** — see [SLSsteam configuration](#slssteam-configuration). `null` = don't write, keep the fork's default. |
+| `programs.nix-crab.slssteam.moon.enable`  | off     | Merge base = slsteam-moon's `res/config.yaml` instead of upstream's. Set alongside the NixOS `slssteam-moon.enable`. |
+| `programs.nix-crab.cloudredirect.enable`  | off     | CloudRedirect user side: user Flatpak (flathub + cloudredirect remotes), the `.so`/CLI links its checks `stat`, `cloud_redirect_cli` on `PATH`. Set alongside the NixOS option. |
+| `programs.nix-crab.cloudredirect.moon.enable` | off | Point the `~/.local/share/CloudRedirect/cloud_redirect.so` link at the moon hook. Must match the NixOS option. |
+| `programs.nix-crab.netsock.enable`        | off     | Install netsock to `~/.config/SLSsteam/tools/netsock/netsock.so` for per-game launch options. |
+| `programs.nix-crab.tools.enable`          | off     | Put `nix-crab-status` and `nix-crab-update` on `PATH`. |
+| `programs.nix-crab.accela.enable`         | off     | ACCELA desktop app (icon, desktop entry, seeded `ACCELA.conf`). |
+| `programs.nix-crab.accela.config.*`       | see below | ACCELA's `[General]` keys as typed options — see [ACCELA configuration](#accela-configuration). |
+| `programs.nix-crab.steamidra.enable`      | off     | SteaMidra (SFF) desktop app (.NET 9 runtime + launcher + forced desktop entry). |
+| `programs.nix-crab.luatools.enable`       | off     | LuaTools home side: Lumen + plugin into `~/.local/share/Lumen`, `lumen` cmd, `steam` shadow-wrapper that starts Lumen, `steam-run` on `PATH`. Needs NixOS `slssteam-moon.enable` + home `slssteam.moon.enable` (asserted). |
+| `programs.nix-crab.luatools.lumenService` | off     | Run Lumen as a systemd user service (`nix-crab-lumen`) instead of the `steam` wrapper. |
+| `programs.nix-crab.millennium.plugins`    | `[]`    | Millennium plugin IDs from [steambrew.app/plugins](https://steambrew.app/plugins), installed on activation. |
+| `programs.nix-crab.millennium.themes`     | `[]`    | Millennium theme IDs/names from [steambrew.app/themes](https://steambrew.app/themes). |
+
+Assertions (eval-time errors, not runtime surprises):
+
+- `settings` set without `manageConfig` → fails with the fix in the message.
+- `millennium` + `slssteam-moon` together → fails (both want Steam's CEF endpoint).
+- `cloudredirect` without any injection → fails (nowhere to `LD_PRELOAD`).
+- `luatools` + `manageConfig` without `slssteam.moon` → fails (wrong merge base).
+
+## SLSsteam configuration
+
+`programs.nix-crab.slssteam.settings` mirrors upstream's YAML config file as **typed Nix options** —
+the YAML file *is* the options file. Every option maps 1:1 to a `config.yaml` key, with upstream's
+type and meaning:
+
+- **Full reference:** [SLSsteam wiki → Configuration](https://github.com/AceSLS/SLSsteam/wiki/Configuration)
+  (keys, types, bitflag values, special AppIds like `LaunchOptions`' 4294967294/4294967295).
+- **The defaults live upstream:** each fork's own `res/config.yaml`
+  ([SLSsteam](https://github.com/AceSLS/SLSsteam/blob/main/res/config.yaml),
+  [slsteam-moon](https://github.com/swwayps/slsteam-moon/blob/main/res/config.yaml)) — that file is
+  the merge base, comments included.
+
+```nix
+programs.nix-crab.slssteam = {
+  manageConfig = true;              # opt in: Nix owns ~/.config/SLSsteam/config.yaml
+  moon.enable = false;              # true = merge over slsteam-moon's defaults
+  settings = {
+    PlayNotOwnedGames = true;       # bool
+    DisableCloud = false;           # needed for CloudRedirect to sync
+    AppIds = [ 440 730 ];           # listOf int
+    SmartTickets = 3;               # bitflag int (1 = SteamDRM, 2 = Denuvo)
+    IdleStatus = { AppId = 480; Title = "grinding"; };  # submodule
+    extraSettings.SomeNewKey = 42;  # freeform escape hatch for keys not typed yet
+  };
+};
+```
+
+How the file is produced:
+
+- **Every option defaults to `null` = "not written"** — unset keeps the fork's documented default.
+  Nothing here hardcodes an opinionated value; upstream owns the defaults.
+- With **no settings set** and `manageConfig = true`, the fork's `res/config.yaml` is used
+  **verbatim** (byte-identical, comments intact).
+- With settings set, `yq-go` deep-merges your overlay over that base: your values win, everything
+  else (and all comments) survives. Because the base contains *every key the fork's C++ reads*, the
+  generated file never triggers the "Config loading issues" notification on Steam start — which is
+  what upstream's typed-module-plus-hardcoded-defaults scheme got wrong (it bit-rotted: upstream
+  deleted `PlayNotOwnedGames` from the C++ while the module kept writing it).
+- The key set tracks upstream automatically: when SLSsteam adds a config key, `nix flake update`
+  picks it up (the base comes from the input). Until a key is typed here, `extraSettings` accepts
+  it as freeform YAML.
+- `manageConfig` defaults to `false`: the file stays unmanaged so SteaMidra and friends can edit
+  it. Setting any `settings` key without `manageConfig` **fails evaluation** with a pointer to the
+  fix, instead of silently dropping your values.
+
+Which side reads what: upstream SLSsteam reads the wiki keys; slsteam-moon additionally reads
+`DisableParentalRestrictions`, `AutoUpdateApps`, `Donate`, `Achievements`, `PatternCache`,
+`AsyncProvision`, `MaxManagedApps`, `LogLevel` (its own 0-6 scale, distinct from upstream's bitwise
+`LogLevels`) — all typed below. Unknown keys are ignored by whichever fork doesn't read them, so
+one config serves both.
+
+## ACCELA configuration
+
+`programs.nix-crab.accela.config` exposes ACCELA's `[General]` INI keys — these are what make
+ACCELA hand games to SLSsteam instead of managing them itself (they match what enter-the-wired's
+own `accela` script forces):
+
+| Option | Default | Meaning |
+| ------ | ------- | ------- |
+| `auto_skip_single_choice` | `true` | Skip dialogs that only offer one choice. |
+| `library_mode` | `true` | Work against the Steam library. |
+| `max_downloads` | `16` | Parallel depot downloads. |
+| `sls_config_management` | `true` | Hand config management to SLSsteam. |
+| `slssteam_mode` | `true` | Hand games to SLSsteam instead of standalone installs. |
+| `use_steamless` | `true` | Steamless (no-Steam) mode. |
+
+The file is **seeded, not managed**: `~/.config/Tachibana Labs/ACCELA.conf` is only written when it
+does not exist (QSettings rewrites it, so a store symlink would break it) — same reasoning as
+`slssteam.manageConfig`. Change the options only if you have not run ACCELA yet, or edit the file
+directly afterwards.
+
 ## Installation
+
 
 Add the flake as an input:
 
@@ -86,80 +243,38 @@ module provides the SLSsteam config (`~/.config/SLSsteam/config.yaml`), netsock,
 CLI and installs `org.cloudredirect.CloudRedirect` as a user Flatpak. Import both in one switch so
 they stay in sync.
 
-## Options
+## Upstream status
 
-### `nixosModules.default`
+Checked 2026-10-06 (GitHub `pushed_at` on every wired repo) — the flake follows **all-live**
+upstreams. This matters because the previous maintainer went quiet:
 
-| Option                                   | Description                                                                                                |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `programs.nix-crab.slssteam.enable`      | Enable SLSsteam injection into the native Steam package. Implies `programs.steam.enable = true`.           |
-| `programs.nix-crab.slssteam.extraEnv`    | Extra environment variables merged into the Steam override (used by CloudRedirect for `LD_PRELOAD`).       |
-| `programs.nix-crab.slssteam-moon.enable` | Switch injection to [slsteam-moon](https://github.com/swwayps/slsteam-moon) (SLSsteam fork with a Lua manifest importer) instead of upstream SLSsteam. Takes precedence if both are enabled; built from source, so expect a 32-bit compile. |
-| `programs.nix-crab.cloudredirect.enable` | Enable CloudRedirect: enables the Flatpak service and sets `LD_PRELOAD` to the pinned `cloud_redirect.so`. |
-| `programs.nix-crab.cloudredirect.moon.enable` | Use the [cloudredirect-moon](https://github.com/swwayps/cloudredirect-moon) hook (scans `stplug-in`/`luaappids.yaml`) instead of upstream CloudRedirect. Opt-in, for the LuaTools stack. |
-| `programs.nix-crab.millennium.enable`    | Replace `pkgs.steam` with `millennium-steam` via overlay. Combine with `slssteam.enable`.                   |
-| `programs.nix-crab.downgrade.enable`     | Add the `nix-crab-downgrade` script to `environment.systemPackages`.                                       |
-| `programs.nix-crab.downgrade.package`    | Override the wrapper script.                                                                               |
+| Repository | Last push | Status | How this flake tracks it |
+| ---------- | --------- | ------ | ------------------------ |
+| [ItszFinn/nix-crab](https://github.com/ItszFinn/nix-crab) (the original) | 2026-09-05 (main) | **inactive** — only its lock-bot branch still pushes | forked here; all fixes below are ours |
+| [AceSLS/SLSsteam](https://github.com/AceSLS/SLSsteam) | 2026-10-04 | active | git input → `nix flake update` |
+| [Selectively11/CloudRedirect](https://github.com/Selectively11/CloudRedirect) | 2026-10-04 (v2.6.6) | active | `releases/latest/download/…` → newest release on update |
+| [SteamClientHomebrew/Millennium](https://github.com/SteamClientHomebrew/Millennium) | 2026-10-04 | active | git input, `nixpkgs` follows this flake |
+| [swwayps/slsteam-moon](https://github.com/swwayps/slsteam-moon) | 2026-09-29 | active | git input |
+| [swwayps/luatools-moon](https://github.com/swwayps/luatools-moon) | 2026-09-29 | active | git input |
+| [Deadboy666/h3adcr-b-modul3s](https://github.com/Deadboy666/h3adcr-b-modul3s) | 2026-09-28 | active (mid-migration: `dgsc`/`dlm` deleted from `main`) | binaries pinned to the last commit that has them; `sources.txt` fetched at runtime |
+| [gmodena/nix-flatpak](https://github.com/gmodena/nix-flatpak) | 2026-09-26 | active | git input |
+| [swwayps/lumen](https://github.com/swwayps/lumen) | 2026-09-21 | active | git input |
+| [swwayps/cloudredirect-moon](https://github.com/swwayps/cloudredirect-moon) | 2026-09-19 | active | git input |
+| [yesyes0649/steamnetsock-patch](https://github.com/yesyes0649/steamnetsock-patch) | 2026-09-14 | active | `releases/latest/download/fix.so` |
+| [ciscosweater/enter-the-wired](https://github.com/ciscosweater/enter-the-wired) | 2026-09-04 | active | git input (ACCELA) |
+| [Midrags/SFF](https://github.com/Midrags/SFF) (SteaMidra) | 2026-08-21 (v6.6.6) | active | `/tags` list → newest tag on update |
 
-### `homeModules.default`
+**Getting the latest upstream automatically:**
 
-The home module exposes one freeform `settings` option for the SLSsteam config (see
-[SLSsteam configuration](#slssteam-configuration) below) and also configures:
-
-- `services.flatpak` — remotes `flathub` + `cloudredirect`, package `org.cloudredirect.CloudRedirect`.
-- `home.file` — netsock and the CloudRedirect CLI.
-- `home.packages` — `cloud_redirect_cli` and `nix-crab-status`.
-
-| Option                                    | Description                                                                                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `programs.nix-crab.slssteam.settings` | Freeform SLSsteam settings (any key the docs describe). Written to `~/.config/SLSsteam/config.yaml` **merged over** the active fork's own default config when `manageConfig` is on. Setting it without `manageConfig` is an eval-time assertion, not a silent no-op. |
-| `programs.nix-crab.slssteam.manageConfig` | Whether Nix manages `~/.config/SLSsteam/config.yaml` (default `false`, leaving the file unmanaged so external tools like SteaMidra can edit it). |
-| `programs.nix-crab.slssteam.moon.enable` | Merge base for `settings`: apply over slsteam-moon's default config instead of upstream SLSsteam's. Set together with the NixOS module's `slssteam-moon.enable` (the two modules are evaluated separately, same as `cloudredirect.moon`). |
-| `programs.nix-crab.steamidra.enable`      | Enable SteaMidra (SFF) desktop app (.NET 9 AppImage wrapper with desktop entry and icon).                                                        |
-| `programs.nix-crab.accela.enable`         | Enable ACCELA desktop app (Enter The Wired AppImage with desktop entry, icon and a seeded `ACCELA.conf`).                                        |
-| `programs.nix-crab.luatools.enable`       | Home side of the LuaTools stack: installs Lumen (backend) + the LuaTools plugin into `~/.local/share/Lumen`, provides a `lumen` command, and shadows `steam` with a wrapper that auto-starts Lumen when Steam launches. Requires `slssteam-moon.enable` on the NixOS side. |
-| `programs.nix-crab.luatools.lumenService` | Run Lumen as a systemd user service (`nix-crab-lumen`, starts at login, `Restart=on-failure`) instead of the `steam`-wrapper sidecar; disables the `steam` shadow. Default `false`. |
-| `programs.nix-crab.cloudredirect.moon.enable` | Home side of the same switch: points `~/.local/share/CloudRedirect/cloud_redirect.so` at the moon hook so the app's status matches what is injected. Set it together with the NixOS option. |
-| `programs.nix-crab.millennium.plugins`    | Millennium plugin IDs from [steambrew.app/plugins](https://steambrew.app/plugins); installed into `~/.local/share/millennium/plugins`.           |
-| `programs.nix-crab.millennium.themes`     | Millennium themes from [steambrew.app/themes](https://steambrew.app/themes) by ID, name or repo; installed into `~/.steam/steam/millennium/themes`. |
-
-## SLSsteam configuration
-
-`programs.nix-crab.slssteam.settings` is a freeform YAML attrset — set any key the upstream docs
-describe, nothing is hardcoded here:
-
-```nix
-programs.nix-crab.slssteam = {
-  manageConfig = true;              # opt in: Nix owns ~/.config/SLSsteam/config.yaml
-  settings = {
-    PlayNotOwnedGames = true;       # upstream SLSsteam; slsteam-moon reads it too
-    DisableCloud = false;           # needed for CloudRedirect to sync
-    AppIds = [ 440 730 ];
-  };
-};
-```
-
-How the file is produced (this replaces upstream's typed-module + `mkDefault` defaults):
-
-- **Merge base** is the *active fork's own* `res/config.yaml` straight from the pinned flake input —
-  upstream SLSsteam's by default, slsteam-moon's with `slssteam.moon.enable`. That file contains
-  every key the fork's C++ reads, so the generated config never trips the "Config loading issues"
-  notification on start, and its comments survive into the output.
-- **Your `settings`** deep-merge over that base (`yq-go`'s `base * overlay`): values you set win,
-  everything else keeps its documented default. With `settings = {}` the fork default is used
-  verbatim — no re-serialization.
-- Because the base comes from the input, the key set tracks upstream automatically. When SLSsteam
-  adds a config key, `nix flake update` picks it up; no module edit needed. (This is why upstream's
-  hardcoded list had bit-rotted: `PlayNotOwnedGames` was deleted from upstream's C++ in 84c3672 while
-  the module kept writing it.)
-- `manageConfig` still defaults to `false`: the file stays unmanaged so SteaMidra and friends can
-  edit it. Setting `settings` without `manageConfig` fails evaluation with a pointer to the fix
-  rather than silently dropping your values.
-
-Keys worth knowing for a headcrab-like setup: `PlayNotOwnedGames`, `DisableCloud = false` (with
-CloudRedirect), `AppIds` / `AdditionalApps`. See the upstream `res/config.yaml` for the full
-documented set — [SLSsteam](https://github.com/AceSLS/SLSsteam/blob/main/res/config.yaml) or
-[slsteam-moon](https://github.com/swwayps/slsteam-moon/blob/main/res/config.yaml).
+- Git inputs (SLSsteam, moon, Lumen, …) and `releases/latest/download` file inputs (CloudRedirect,
+  netsock) re-resolve on `nix flake update` — and this repo runs the
+  [update-flake-lock](https://github.com/DeterminateSystems/update-flake-lock) GitHub Action
+  (weekly + manual), which opens a PR refreshed `flake.lock` validated by `nix flake check` in CI.
+  Locally: `nix-crab-update` does update → rebuild → status in one command.
+- The Steam client itself follows Valve's updates by default (`steam.cfg` only written by the
+  opt-in downgrade).
+- Config keys track upstream because the merge base is the fork's own `res/config.yaml` from the
+  locked input — no hardcoded key list to go stale.
 
 ## Updating
 
@@ -481,13 +596,20 @@ up keep their own licenses (SLSsteam is AGPL-3.0).
 
 ## Credits
 
+This repository is an **updated continuation of [nix-crab](https://github.com/ItszFinn/nix-crab)**
+by **ItszFinn** — the architecture (two-module design, `LD_AUDIT`/`LD_PRELOAD` injection, the
+status/update tooling, the Millennium and LuaTools stacks) is their work, and the original MIT
+license carries over. nix-crab went quiet in September 2026 with broken URLs and stale pins; this
+fork refreshes it, fixes the rot, and reworks the config into typed options. All credit for the
+original goes to them.
+
 A huge thank you to the developers of the projects that make this declarative NixOS reproduction possible.
 
 This repository was created and is maintained by a **13-year-old NixOS enthusiast** (who knows that while this project's setup is anything but optimal, it works perfectly and gets the job done!), developed and polished with the help of the **[opencode](https://github.com/anomalyco/opencode)** AI assistant.
 
 Project Credits:
 
-- **[SLSsteam](https://github.com/AceSLS/SLSsteam)** (by AceSLS) — for the incredible Steam injection capability.
+- **[SLSsteam](https://github.com/AceSLS/SLSsteam)** (by AceSLS) — for the incredible Steam injection capability, its [wiki](https://github.com/AceSLS/SLSsteam/wiki) (the configuration documentation this module's options mirror), and the official NixOS install method by **[DeveloperMikey](https://github.com/DeveloperMikey)**.
 - **[CloudRedirect](https://github.com/Selectively11/CloudRedirect)** (by Selectively11) — for the reliable cloud save syncing.
 - **[SteaMidra (SFF)](https://github.com/Midrags/SFF)** (by Midrags) — for the powerful configuration and account manager.
 - **[steamnetsock-patch](https://github.com/yesyes0649/steamnetsock-patch)** (by yesyes0649) — for the multiplayer fixes.

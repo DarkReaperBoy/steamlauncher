@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   schedule:
     # Weekly, Monday 04:17 UTC — keeps the pinned inputs
-    # (sls-steam, cloudredirect, moon, lumen, luatools-moon, steamnetsock,
-    # steamidra, accela, millennium, nixpkgs) following upstream releases.
+    # (sls-steam, slsteam-moon, cloudredirect, lumen, luatools-moon, steamnetsock,
+    # steamidra, enter-the-wired, millennium, nix-flatpak, nixpkgs) following
+    # upstream releases. This is how the flake tracks latest upstream.
     - cron: "17 4 * * 1"
 
 permissions:

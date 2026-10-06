@@ -1,8 +1,10 @@
-{millennium}: {
+{ millennium }:
+{
   config,
   lib,
   ...
-}: {
+}:
+{
   options.programs.nix-crab.millennium.enable = lib.mkEnableOption "Enable millennium";
 
   config = lib.mkIf config.programs.nix-crab.millennium.enable {
@@ -12,6 +14,6 @@
     # Millennium's overlay now resolves steam.nix's `steam` argument from the
     # final set, so remapping would recurse. slssteam.nix picks
     # millennium-steam as the override base when this option is on.
-    nixpkgs.overlays = [millennium.overlays.default];
+    nixpkgs.overlays = [ millennium.overlays.default ];
   };
 }

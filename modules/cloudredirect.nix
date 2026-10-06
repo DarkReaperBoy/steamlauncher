@@ -1,12 +1,14 @@
 {
   cloudredirect,
   cloudredirect-moon,
-}: {
+}:
+{
   config,
   lib,
   pkgs,
   ...
-}: {
+}:
+{
   options.programs.nix-crab.cloudredirect = {
     enable = lib.mkEnableOption "Enable CloudRedirect";
 
@@ -23,16 +25,21 @@
     # NixOS's native flatpak module asserts xdg.portal.enable == true, and
     # portal-enable itself asserts a backend exists in extraPortals — without
     # this pair a plain system fails the build with "To use Flatpak you must
-    # enable XDG Desktop Portals". Both mkDefault: any definition in the
+    # enable XDG Desktop Portals". All mkDefault: any definition in the
     # user's own config (e.g. the KDE/GNOME portal) takes precedence — for
-    # extraPortals a non-default definition replaces this one entirely.
+    # extraPortals a non-default definition replaces ours entirely.
+    # config.common.default = "*" is what xdg-desktop-portal >= 1.17 asks for
+    # (evaluation warning): pick the first backend lexicographically, which is
+    # the pre-1.17 behaviour every desktop config relied on.
     xdg.portal = {
       enable = lib.mkDefault true;
-      extraPortals = lib.mkDefault [pkgs.xdg-desktop-portal-gtk];
+      extraPortals = lib.mkDefault [ pkgs.xdg-desktop-portal-gtk ];
+      config.common.default = lib.mkDefault "*";
     };
     programs.nix-crab.slssteam.extraEnv.LD_PRELOAD =
-      if config.programs.nix-crab.cloudredirect.moon.enable
-      then "${cloudredirect-moon}/cloud_redirect.so"
-      else "${cloudredirect}";
+      if config.programs.nix-crab.cloudredirect.moon.enable then
+        "${cloudredirect-moon}/cloud_redirect.so"
+      else
+        "${cloudredirect}";
   };
 }
