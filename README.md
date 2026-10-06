@@ -57,8 +57,7 @@ default:
 | Package                  | What it is                                                              | Build / run                                   |
 | ------------------------ | ----------------------------------------------------------------------- | --------------------------------------------- |
 | `accela` *               | ACCELA depot downloader (Qt-clean AppImage launcher)                    | `nix build .#accela`                          |
-| `SLSsteam`               | Steam with SLSsteam `LD_AUDIT` baked in (both `steam` + `SLSsteam` cmds) | `nix profile install .#SLSsteam`              |
-| `sls-steam`              | `SLSsteam.so` + `library-inject.so` (upstream build)                    | `nix build .#sls-steam`                       |
+| `sls-steam`              | `SLSsteam.so` + `library-inject.so` — **upstream's own package output** from [AceSLS/SLSsteam](https://github.com/AceSLS/SLSsteam/wiki/Installation) | `nix build .#sls-steam` |
 | `slsteam-moon`           | the LuaTools fork's `.so` pair, compiled from source (32-bit)           | `nix build .#slsteam-moon`                    |
 | `cloudredirect`          | upstream `cloud_redirect.so` (cloud-saves hook)                         | `nix build .#cloudredirect`                   |
 | `cloudredirect-moon`     | LuaTools hook (also scans `stplug-in`/`luaappids.yaml`)                 | `nix build .#cloudredirect-moon`              |
@@ -74,8 +73,15 @@ default:
 | `nix-crab-downgrade`     | pin the Steam client to headcrab's build                                | `nix run .#nix-crab-downgrade`                |
 | `default`                | = `accela`                                                              | `nix build`                                   |
 
-\* packages that need Steam's unfree license are built with an `allowUnfreePredicate` scoped to
-`steam`/`steam-unwrapped` only — the rest of your config can stay `allowUnfree = false`.
+\* no package output is unfree — SLSsteam is AGPL-3.0. Steam's unfree license only enters the
+picture through the module option (`programs.nix-crab.slssteam.enable`), evaluated against *your*
+nixpkgs config where you already deal with it (same requirement as upstream's own wiki snippet).
+
+**There is deliberately no "Steam with SLSsteam baked in" package.** Injection happens only when
+you enable the option — canonical to the [upstream wiki's NixOS
+instructions](https://github.com/AceSLS/SLSsteam/wiki/Installation): `programs.steam.package =
+pkgs.steam.override { extraEnv.LD_AUDIT = "…/library-inject.so:…/SLSsteam.so"; }`, which is
+exactly what `slssteam.enable` writes.
 
 All of these are the *same derivations* the module options install (shared builders in `lib.nix`),
 so `nix build .#nix-crab-status` and enabling `tools.enable` give you bit-identical bits.

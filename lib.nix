@@ -107,23 +107,6 @@ rec {
       };
     };
 
-  # Standalone steam with SLSsteam LD_AUDIT for imperative use — the same
-  # injection the NixOS module wires into programs.steam.
-  mkSteamSLS =
-    pkgs:
-    let
-      slsSo = mkSlsSteam pkgs;
-      steamSLS = pkgs.steam.override {
-        extraEnv.LD_AUDIT = "${slsSo}/library-inject.so:${slsSo}/SLSsteam.so";
-      };
-    in
-    # single package providing both command names
-    pkgs.runCommand "SLSsteam" { } ''
-      mkdir -p $out/bin
-      ln -s ${steamSLS}/bin/steam $out/bin/SLSsteam
-      ln -s ${steamSLS}/bin/steam $out/bin/steam
-    '';
-
   # -- ACCELA ---------------------------------------------------------------
 
   # ACCELA's AppImage bundles its own Qt (PyQt6 + Qt 6.11.0). When launched

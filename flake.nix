@@ -123,18 +123,10 @@
           ;
       };
 
-      # Steam is unfree; only the packages that actually need it pay for it.
-      pkgsFor =
-        system:
-        import nixpkgs {
-          inherit system;
-          config.allowUnfreePredicate =
-            pkg:
-            builtins.elem (nixpkgs.lib.getName pkg) [
-              "steam"
-              "steam-unwrapped"
-            ];
-        };
+      # No package output is unfree — the old SLSsteam steam-wrapper was the
+      # only unfree one and is gone (injection happens via the module option
+      # on the consumer's own pkgs, where steam's unfree license is handled).
+      pkgsFor = system: import nixpkgs { inherit system; };
     in
     {
       # ------------------------------------------------------------------
@@ -151,7 +143,6 @@
         rec {
           # software
           accela = crabLib.mkAccela pkgs; # ACCELA depot downloader (clean-Qt launcher)
-          SLSsteam = crabLib.mkSteamSLS pkgs; # steam with SLSsteam LD_AUDIT built in
           sls-steam = crabLib.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream)
           slsteam-moon = crabLib.mkSlsteamMoon pkgs; # the LuaTools fork, built from source
           cloudredirect = crabLib.mkCloudredirect pkgs; # upstream cloud_redirect.so
