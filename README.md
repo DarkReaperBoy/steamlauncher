@@ -83,8 +83,10 @@ instructions](https://github.com/AceSLS/SLSsteam/wiki/Installation): `programs.s
 pkgs.steam.override { extraEnv.LD_AUDIT = "…/library-inject.so:…/SLSsteam.so"; }`, which is
 exactly what `slssteam.enable` writes.
 
-All of these are the *same derivations* the module options install (shared builders in `lib.nix`),
-so `nix build .#nix-crab-status` and enabling `tools.enable` give you bit-identical bits.
+All of these are the *same derivations* the module options install: every feature lives in one
+`modules/<feature>.nix` **unit** (`{ inputs }: { module, mk* }`) — `flake.nix` instantiates it once
+and takes `.module` for the module outputs and `.mk*` for the packages. So `nix build
+.#nix-crab-status` and enabling `tools.enable` give you bit-identical bits.
 
 ## Options
 

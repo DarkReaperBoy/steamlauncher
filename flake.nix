@@ -14,7 +14,7 @@
 
     # slsteam-moon: SLSsteam fork with a native Lua manifest importer (the
     # maintained path for the LuaTools workflow). No flake, so it is built from
-    # source in lib.nix instead of imported as a package set. Its
+    # source in modules/slssteam.nix instead of imported as a package set. Its
     # res/config.yaml is the merge base when slssteam-moon is enabled.
     slsteam-moon = {
       url = "github:swwayps/slsteam-moon";
@@ -106,20 +106,34 @@
       systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
-      # One shared builder set: every package output and every module option
-      # resolves to the same derivations through this.
-      crabLib = import ./lib.nix {
+      # Feature units: each modules/<feature>.nix returns
+      # `{ module, mk* }` — instantiate ONCE here, then take `.module` for the
+      # module outputs and `.mk*` for packages.*. One definition per
+      # derivation, so a package and the option that installs it are always
+      # bit-identical. (Files that own no derivations — settings.nix,
+      # millennium*.nix — are plain modules, imported where used.)
+      slssteamUnit = import ./modules/slssteam.nix { inherit sls-steam slsteam-moon; };
+      cloudredirectUnit = import ./modules/cloudredirect.nix {
         inherit
-          sls-steam
-          slsteam-moon
-          enter-the-wired
           cloudredirect
           cloudredirect-moon
           cloudredirect-cli
+          ;
+      };
+      downgradeUnit = import ./modules/downgrade.nix { };
+      accelaUnit = import ./modules/accela.nix { inherit enter-the-wired; };
+      steamidraUnit = import ./modules/steamidra.nix { inherit steamidra; };
+      luatoolsUnit = import ./modules/luatools-moon.nix { inherit lumen luatools-moon; };
+      toolsUnit = import ./modules/tools.nix { inherit cloudredirect cloudredirect-moon; };
+      homeUnit = import ./modules/home.nix {
+        inherit
+          nix-flatpak
           steamnetsock
-          steamidra
-          lumen
-          luatools-moon
+          cloudredirect
+          cloudredirect-moon
+          cloudredirect-cli
+          sls-steam
+          slsteam-moon
           ;
       };
 
@@ -142,23 +156,23 @@
         in
         rec {
           # software
-          accela = crabLib.mkAccela pkgs; # ACCELA depot downloader (clean-Qt launcher)
-          sls-steam = crabLib.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream)
-          slsteam-moon = crabLib.mkSlsteamMoon pkgs; # the LuaTools fork, built from source
-          cloudredirect = crabLib.mkCloudredirect pkgs; # upstream cloud_redirect.so
-          cloudredirect-moon = crabLib.mkCloudredirectMoon pkgs; # LuaTools hook
-          cloudredirect-cli = crabLib.mkCloudredirectCli pkgs; # cloud_redirect_cli
-          netsock = crabLib.mkNetsock pkgs; # multiplayer-fix .so (per-game LD_AUDIT)
-          steamidra = crabLib.mkSteamidra pkgs; # SteaMidra (SFF) launcher
-          lumen = crabLib.mkLumen pkgs; # LuaTools backend dist
-          luatools = crabLib.mkLuatools pkgs; # LuaTools plugin dist
-          ticket-grabber = crabLib.mkTicketGrabber pkgs; # SLSsteam tool
-          schema-grabber = crabLib.mkSchemaGrabber pkgs; # SLSsteam tool
+          accela = accelaUnit.mkAccela pkgs; # ACCELA depot downloader (clean-Qt launcher)
+          sls-steam = slssteamUnit.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream)
+          slsteam-moon = slssteamUnit.mkSlsteamMoon pkgs; # the LuaTools fork, built from source
+          cloudredirect = cloudredirectUnit.mkCloudredirect pkgs; # upstream cloud_redirect.so
+          cloudredirect-moon = cloudredirectUnit.mkCloudredirectMoon pkgs; # LuaTools hook
+          cloudredirect-cli = cloudredirectUnit.mkCloudredirectCli pkgs; # cloud_redirect_cli
+          netsock = homeUnit.mkNetsock pkgs; # multiplayer-fix .so (per-game LD_AUDIT)
+          steamidra = steamidraUnit.mkSteamidra pkgs; # SteaMidra (SFF) launcher
+          lumen = luatoolsUnit.mkLumen pkgs; # LuaTools backend dist
+          luatools = luatoolsUnit.mkLuatools pkgs; # LuaTools plugin dist
+          ticket-grabber = slssteamUnit.mkTicketGrabber pkgs; # SLSsteam tool
+          schema-grabber = slssteamUnit.mkSchemaGrabber pkgs; # SLSsteam tool
 
           # this flake's own commands
-          nix-crab-status = crabLib.mkStatus pkgs; # diagnostics, --json for machines
-          nix-crab-update = crabLib.mkUpdate pkgs; # flake update + rebuild + status
-          nix-crab-downgrade = crabLib.mkDowngrade pkgs; # pin the Steam client
+          nix-crab-status = toolsUnit.mkStatus pkgs; # diagnostics, --json for machines
+          nix-crab-update = toolsUnit.mkUpdate pkgs; # flake update + rebuild + status
+          nix-crab-downgrade = downgradeUnit.mkDowngrade pkgs; # pin the Steam client
 
           default = accela;
         }
@@ -171,29 +185,20 @@
       nixosModules.default = {
         imports = [
           (import ./modules/millennium.nix { inherit millennium; })
-          (import ./modules/cloudredirect.nix { inherit cloudredirect cloudredirect-moon; })
-          (import ./modules/slssteam.nix { inherit crabLib; })
-          (import ./modules/downgrade.nix { inherit crabLib; })
+          cloudredirectUnit.module
+          slssteamUnit.module
+          downgradeUnit.module
         ];
       };
 
       homeModules.default = {
         imports = [
-          (import ./modules/home.nix {
-            inherit
-              crabLib
-              nix-flatpak
-              steamnetsock
-              cloudredirect
-              cloudredirect-moon
-              sls-steam
-              slsteam-moon
-              ;
-          })
+          homeUnit.module
           ./modules/millennium-addons.nix
-          (import ./modules/luatools-moon.nix { inherit crabLib; })
-          (import ./modules/steamidra.nix { inherit crabLib; })
-          (import ./modules/accela.nix { inherit crabLib; })
+          toolsUnit.module
+          luatoolsUnit.module
+          steamidraUnit.module
+          accelaUnit.module
         ];
       };
 
