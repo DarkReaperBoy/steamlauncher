@@ -573,9 +573,13 @@ badSettings,badNetsock}` — `bare` proves nothing turns itself on, `bad*` must 
 the right assertion message, and `full` proves `LD_AUDIT` and `MILLENNIUM_RUNTIME_PATH` end up on
 the same Steam package.
 
-CI runs all of it on every push and pull request, together with `nix flake check`, a formatting
-gate and a build of **every** package output — so a PR that changes anything here is validated the
-same way.
+CI is deliberately tiny. Everything heavy comes from upstream releases, so there is nothing to
+compile and nothing worth caching — a run is a Nix install plus an evaluation, about a minute and
+a half, and no Actions cache is used or created:
+
+- **every push/PR** → `nix flake check` + a formatting gate;
+- **pull requests** → the full test suite above as well, before anything merges;
+- **daily** → the `sync` job below (newest upstream releases + `flake.lock`, verified, as a PR).
 
 ## Caveats
 

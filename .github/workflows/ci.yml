@@ -1,10 +1,13 @@
 name: ci
 
-# One workflow, two jobs:
-#   check — every push/PR: evaluate, format-check, build every package, run the
-#           test suite (tests/: eval assertions + the config-writer activations).
-#   sync  — daily (+ manual): pick up new upstream release binaries, refresh
-#           flake.lock, re-verify, and open a PR with whatever moved.
+# Deliberately small — this project fetches every heavy artefact from upstream
+# releases (see modules/upstream-binaries.nix), so there is nothing worth
+# caching and nothing to compile: a run is an install + an evaluation.
+#   check — every push/PR: `nix flake check` + a formatting gate. The full
+#           test suite (tests/) joins in on pull requests only, so ordinary
+#           pushes stay at about a minute and a half.
+#   sync  — daily/manual: newest upstream release binaries + flake.lock,
+#           re-verified, opened as a PR.
 on:
   push:
   pull_request:
@@ -13,7 +16,6 @@ on:
     # daily, 04:17 UTC — the upstream sync
     - cron: "17 4 * * *"
 
-# one run per ref; a newer push supersedes an in-flight one
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
@@ -25,15 +27,13 @@ jobs:
   check:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
-
-      - name: Cache
-        uses: DeterminateSystems/magic-nix-cache-action@6221693898146dc97e38ad0e013488a16477a4c4 # v9
 
       - name: Evaluate
         run: nix flake check
@@ -43,15 +43,8 @@ jobs:
           nix fmt
           git diff --exit-code
 
-      - name: Build every package output
-        run: >
-          nix build -L
-          .#sls-steam .#slsteam-moon .#millennium .#lumen .#luatools
-          .#netsock .#accela .#steamidra .#steam-config-patcher
-          .#ticket-grabber .#schema-grabber
-          .#nix-crab-status .#nix-crab-update .#nix-crab-downgrade
-
       - name: Test suite (eval assertions + config writer)
+        if: github.event_name == 'pull_request'
         run: |
           cd tests
           ./test-eval.sh
@@ -63,6 +56,7 @@ jobs:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -78,13 +72,12 @@ jobs:
       - name: Update flake.lock
         run: nix flake update
 
-      - name: Verify (evaluate everything, fetch + unpack every binary)
+      - name: Verify (evaluate everything, fetch + unpack every release binary)
         run: |
           nix flake check
           nix build -L \
-            .#millennium .#slsteam-moon .#lumen .#luatools \
-            .#netsock .#accela .#steam-config-patcher \
-            .#nix-crab-status .#nix-crab-downgrade
+            .#sls-steam .#ticket-grabber .#schema-grabber \
+            .#millennium .#slsteam-moon .#lumen .#luatools
 
       - name: Open a PR if anything moved
         id: create-pr
@@ -101,13 +94,13 @@ jobs:
           body: |
             Automated daily sync.
 
-            - `upstream.lock.json` — release binaries of Millennium, slsteam-moon,
-              Lumen and LuaTools, each verified against the sha256 published next
-              to the asset (see `ci/update-binaries.sh`).
+            - `upstream.lock.json` — release binaries of SLSsteam, Millennium,
+              slsteam-moon, Lumen and LuaTools, each verified against the sha256
+              published next to the asset (see `ci/update-binaries.sh`).
             - `flake.lock` — git inputs (`nix flake update`).
 
-            This workflow already ran `nix flake check` and built every package
-            that changed, and the full `check` job runs again on this PR.
+            This workflow already ran `nix flake check` and unpacked every
+            binary, and the `check` job runs again on this PR.
 
       # The repo setting "Allow GitHub Actions to create or approve pull requests"
       # may be off; when it is, the branch still gets pushed above, so the sync
