@@ -14,7 +14,7 @@ configuration, ACCELA, SteaMidra, netsock and a client-downgrade tool — writte
   services) are configured through Home Manager, which this flake wires up and drives for you — you
   never write Home Manager config, and `nixos-rebuild switch` applies everything.
 - **One default: off.** Import the module, flip what you want. Nothing installs itself, and every
-  artefact is a pinned flake input.
+  artefact is pinned — flake inputs, or `upstream.lock.json` for the release binaries.
 
 ```nix
 programs.nix-crab = {
@@ -249,9 +249,10 @@ How the file is produced:
 
 - **Every option defaults to `null` = not written.** Unset keeps the fork's documented default;
   the flake has no opinions about your setup.
-- The merge base is the *active fork's own* `res/config.yaml` from the pinned input, so the file
-  always contains every key that fork's C++ reads (no "Config loading issues" notification), the
-  comments survive, and the key set tracks upstream through `nix flake update`.
+- The merge base is the *active fork's own* `res/config.yaml` — shipped inside the very release
+  archive the binaries come from — so the file always contains every key that fork's C++ reads
+  (no "Config loading issues" notification), the comments survive, and the key set follows every
+  release the daily sync picks up.
 - Values are deep-merged with `yq-go`; AppId-shaped keys come back out unquoted so the LuaTools
   plugin can still read and edit them line-wise.
 - One flake-level default is applied: **`DisableCloud: true`**. Both forks default it to `no`
@@ -323,7 +324,7 @@ programs.nix-crab = {
 ```
 
 `luatools.enable` copies Lumen and the plugin into `~/.local/share/Lumen` (a real directory — both
-write at runtime; re-synced only when the pinned input changes), drops a `steam-run` shim for
+write at runtime; re-synced only when the release version changes), drops a `steam-run` shim for
 Lumen's prebuilt binary, adds `steam-run` and a `lumen` command to PATH, touches
 `~/.steam/steam/.cef-enable-remote-debugging` (Steam only exposes the CEF endpoint when that marker
 exists — restart Steam after the first switch) and shadows `steam` so launching Steam also brings
@@ -440,7 +441,8 @@ active, apps configured) and the Lumen state (installed, running, CEF endpoint a
 
 Everything this flake can install is also a package output, and every one of them is the *same*
 derivation the option installs. No package output is unfree (SLSsteam is AGPL-3.0); Steam's unfree
-license only enters through the options, evaluated against *your* nixpkgs config.
+license only enters through the options, evaluated against *your* nixpkgs config. Most packages are
+simply unpacked from upstream's release assets — `nix build` is a download, not a compile.
 
 | Package | Build / run |
 | ------- | ----------- |
@@ -503,16 +505,15 @@ as *their own published artifacts* — never compiled here. Their versions and h
 ```
 
 `./ci/update-binaries.sh` asks each repository for its newest release, downloads the asset,
-verifies it against the `.sha256` that project publishes next to it, and rewrites the file.
-**CI runs that every day** (the `sync` job of `.github/workflows/ci.yml`), together with
-`nix flake update`, then
-re-evaluates the whole flake, fetches every binary, and opens a PR when anything moved. That PR is
-validated again by `nix flake check` before merging — so "is it still working?" and "is it still
-newest?" are answered on the same daily cycle, with no binary cache of our own to maintain.
+verifies it against the `.sha256` that project publishes next to it, and rewrites the file. **CI
+runs that every day** (the `sync` job of `.github/workflows/ci.yml`) together with
+`nix flake update`, then re-evaluates the whole flake, unpacks every binary and opens a PR when
+anything moved — validated again by `nix flake check` on the PR. One daily cycle answers both "is
+it still working?" and "is it still newest?", with no binary cache of our own to maintain.
 
-**Git inputs.** `nix flake update` moves SLSsteam, Millennium's overlay, steam-config-nix,
-home-manager, enter-the-wired and nixpkgs itself; the daily workflow includes it. Locally it is
-just:
+**Git inputs.** The seven flake inputs — nixpkgs, home-manager, Millennium's overlay,
+steam-config-nix, enter-the-wired, SteaMidra's tag list, netsock's `releases/latest` — move with
+`nix flake update`, and the daily sync runs that too. Locally it is just:
 
 ```
 nix flake update
@@ -540,14 +541,15 @@ The options, packages and `~/.local/share/CloudRedirect/*` links no longer exist
 
 ## Upstream
 
-What this flake re-exports instead of reimplementing:
+What this flake re-exports or consumes instead of reimplementing:
 
 | Upstream | Re-exported as |
 | -------- | -------------- |
 | [steam-config-nix](https://github.com/different-name/steam-config-nix) | `steam.config.*` (alias), NixOS + HM modules |
 | [home-manager](https://github.com/nix-community/home-manager) | the whole home side, driven from NixOS |
-| [Millennium](https://github.com/SteamClientHomebrew/Millennium) | its own Nix overlay (`millennium-steam`) |
+| [Millennium](https://github.com/SteamClientHomebrew/Millennium) | its own Nix overlay (`millennium-steam`) + release binaries |
 | [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own release binaries (`sls-steam`, grabbers) |
+| [slsteam-moon](https://github.com/swwayps/slsteam-moon), [Lumen](https://github.com/swwayps/lumen), [luatools-moon](https://github.com/swwayps/luatools-moon) | their release binaries (injection, Lumen, the plugin) |
 | [enter-the-wired](https://github.com/ciscosweater/enter-the-wired) | its own AppImage package |
 
 Everything else here — the config merge, the LuaTools install, the add-on installer, the downgrade
@@ -567,27 +569,29 @@ cd tests
                   # ACCELA seed, Millennium add-ons, the NixOS-path activation
 ```
 
-Coverage: `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,smokeNixos,ambiguousUser,
+Coverage (31 evaluation checks + 38 writer/activation checks): `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,smokeNixos,ambiguousUser,
 explicitUser,badCombo,badSteamOff}` and `homeConfigurations.{bare,upstreamCfg,smoke,smokeFake,
 badSettings,badNetsock}` — `bare` proves nothing turns itself on, `bad*` must fail evaluation with
 the right assertion message, and `full` proves `LD_AUDIT` and `MILLENNIUM_RUNTIME_PATH` end up on
 the same Steam package.
 
 CI is deliberately tiny. Everything heavy comes from upstream releases, so there is nothing to
-compile and nothing worth caching — a run is a Nix install plus an evaluation, about a minute and
-a half, and no Actions cache is used or created:
+compile and nothing worth caching — a run is a Nix install plus an evaluation, **~30 seconds**, and
+no Actions cache is used or created:
 
 - **every push/PR** → `nix flake check` + a formatting gate;
 - **pull requests** → the full test suite above as well, before anything merges;
-- **daily** → the `sync` job below (newest upstream releases + `flake.lock`, verified, as a PR).
+- **daily** → the `sync` job (described under [Updating](#updating)): newest upstream releases +
+  `flake.lock`, verified, delivered as a PR.
 
 ## Caveats
 
 - This is an independent reimplementation of the h3adcr-b workflow for NixOS — not affiliated with
   h3adcr-b, SLSsteam, Millennium, LuaTools or SteaMidra.
-- Downloading and running third-party binaries (`dgsc`, `dlm`, Lumen, SteaMidra) carries the same
-  risk as the imperative tooling it reproduces. SLSsteam injects into a client that runs games with
-  your credentials; use a throwaway account if that matters to you.
+- Downloading and running third-party binaries (the SLSsteam, Millennium, slsteam-moon and Lumen
+  releases, `dgsc`, `dlm`, SteaMidra) carries the same risk as the imperative tooling it
+  reproduces. SLSsteam injects into a client that runs games with your credentials; use a
+  throwaway account if that matters to you.
 - `SafeMode` is not set by this flake: it is meant for Steam Deck gamemode and can disable SLSsteam
   on desktop after a client update. `nix-crab-status` prints the value in effect.
 - Home Manager, once wired up, manages the chosen user's home (shell profile, session variables)
