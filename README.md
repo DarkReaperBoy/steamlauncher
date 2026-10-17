@@ -218,6 +218,15 @@ raw `programs.steam.package` still wins instead of colliding with it.
 `LD_AUDIT` (SLSsteam), `MILLENNIUM_RUNTIME_PATH` and whatever you add — re-overriding re-enters
 Millennium's function, whose merge keeps everything.
 
+**Game launches get a second, older spelling of the same thing.** Upstream's own `setup.sh install`
+puts the two audit libraries at `~/.local/share/SLSsteam/`, and that is exactly where an
+h3adcr-b-patched `~/.steam/steam/steam.sh` points `LD_AUDIT` right before exec'ing a game — the
+Steam client honors the store path above, but games spawned through `steam.sh` run with steam.sh's
+value, not the client's. nix-crab re-creates that directory on every switch as links into the same
+store path, so the imperative layout, the patched script and the Nix override all resolve to one
+identical SLSsteam. (Without the link, the client keeps loading SLSsteam while every *game*
+quietly loses it — the classic "SLSsteam runs but nothing changes" state.)
+
 ## Per-game configuration (steam-config-nix)
 
 ```nix
@@ -579,7 +588,7 @@ cd tests
                   # both NixOS-path writers, and extraPkgs landing in the FHS closure
 ```
 
-Coverage (37 evaluation checks + 41 writer/activation checks):
+Coverage (40 evaluation checks + 43 writer/activation checks):
 `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,steamSugar,steamPassthrough,rawSteamPkg,
 rawSteamPkgNixCrabOn,smokeNixos,writerSmoke,writerFake,ambiguousUser,explicitUser,badCombo,
 badSteamOff,badSettings,badNetsock}` —
@@ -589,9 +598,11 @@ evaluation with the right assertion message, `full` proves `LD_AUDIT` and
 `programs.steam.package` beats the `extraPkgs` baseline instead of conflicting with it. The writer suite extracts the real
 `system.activationScripts."nix-crab-*"` text and runs it through a driver that mirrors NixOS'
 activate script (same `ERR` trap, same nonzero-exit contract), builds the baseline-laden FHS
-closure (`gamemode` in `steamOnly` — nobody set it there) and asserts Millennium's `pvs64`/`luavm`
+closure (`gamemode` in `steamOnly` — nobody set it there), asserts Millennium's `pvs64`/`luavm`
 objects are executable (the release tarball ships them 644; without +x steamwebhelper can't
-exec the pressure-vessel shim and the Steam client never opens).
+exec the pressure-vessel shim and the Steam client never opens) and recreates upstream's
+`~/.local/share/SLSsteam` install over stale h3adcr-b leftovers (missing `SLSsteam.so`, a 0-byte
+`library-inject.so`).
 
 CI is deliberately tiny. Everything heavy comes from upstream releases, so there is nothing to
 compile and nothing worth caching — a run is a Nix install plus an evaluation, **~30 seconds**, and

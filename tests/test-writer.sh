@@ -134,6 +134,10 @@ grep -q 'DisableCloud:   true' /tmp/status.txt && ok "status reports DisableClou
 
 # --- scenario 8: the same writers, driven from the plain-NixOS config -------
 rm -rf /tmp/hm-nixos && mkdir -p /tmp/hm-nixos
+# stale h3adcr-b leftovers in the canonical install dir — exactly what broke
+# real game launches: no SLSsteam.so + a 0-byte library-inject.so
+mkdir -p /tmp/hm-nixos/.local/share/SLSsteam
+: > /tmp/hm-nixos/.local/share/SLSsteam/library-inject.so
 make_activation smokeNixos /tmp/nix-crab-activate-nixos.sh
 rc=$(run_activation /tmp/nix-crab-activate-nixos.sh /tmp/hm-nixos)
 [ "$rc" = 0 ] && ok "nixos path: activation exit 0" || { fail "nixos path: activation rc=$rc"; tail -20 /tmp/writer-activate.log; }
@@ -143,6 +147,14 @@ grep -q '^DisableCloud: true$' /tmp/hm-nixos/.config/SLSsteam/config.yaml \
   && ok "nixos path: managed config content" || fail "nixos path: config content"
 [ -f /tmp/hm-nixos/.config/SLSsteam/tools/netsock/netsock.so ] \
   && ok "nixos path: netsock.so linked" || fail "nixos path: netsock.so"
+# upstream's setup.sh install layout recreated: both audit libraries at
+# ~/.local/share/SLSsteam, pointing at the SAME store path LD_AUDIT uses
+share=/tmp/hm-nixos/.local/share/SLSsteam
+moonso=$(nix build --no-link --print-out-paths "$root#slsteam-moon" 2>/dev/null)/SLSsteam.so
+[ -L "$share/SLSsteam.so" ] && [ -e "$share/SLSsteam.so" ] && [ "$share/SLSsteam.so" -ef "$moonso" ] \
+  && ok "nixos path: SLSsteam.so linked into ~/.local/share/SLSsteam" || fail "nixos path: SLSsteam.so share link"
+[ -L "$share/library-inject.so" ] && [ -e "$share/library-inject.so" ] \
+  && ok "nixos path: stale 0-byte library-inject.so replaced by link" || fail "nixos path: library-inject share link"
 [ -x /tmp/hm-nixos/.local/share/Lumen/lumen ] \
   && ok "nixos path: Lumen installed" || fail "nixos path: Lumen"
 grep -q 'env -u LD_AUDIT' /tmp/hm-nixos/.local/share/Lumen/lumen 2>/dev/null \

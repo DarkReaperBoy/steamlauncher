@@ -64,6 +64,12 @@ eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-s
   && ok "full: config.yaml writer is an activation snippet" || fail "full: config.yaml activation"
 eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-millennium".text' | grep -q 'crabSync' \
   && ok "full: millennium installer is an activation snippet" || fail "full: millennium activation"
+# upstream's install layout: ~/.steam/steam/steam.sh (h3adcr-b) exports
+# LD_AUDIT to ~/.local/share/SLSsteam for every game launch — without this
+# link games lose SLSsteam even though the client's store path works.
+eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -q '.local/share/SLSsteam' \
+  && eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -q 'sls-steam-.*/SLSsteam.so' \
+  && ok "full: canonical ~/.local/share/SLSsteam link is an activation snippet" || fail "full: share link activation"
 eval_json '.#nixosConfigurations.full.config.environment.systemPackages' | grep -q nix-crab-status \
   && ok "full: nix-crab-status installed system-wide" || fail "full: tools installed"
 eval_json '.#nixosConfigurations.full.config.systemd.tmpfiles.rules' | grep -q 'steam-config-nix/apps/440/wrapper' \
@@ -77,6 +83,9 @@ eval_raw '.#nixosConfigurations.full.config.systemd.services."steam-config-patch
   && ok "steamOnly: the unified knob enables Steam" || fail "steamOnly: steam on"
 nix derivation show "$(eval_raw '.#nixosConfigurations.steamOnly.config.programs.steam.package.drvPath')" 2>/dev/null | grep -q 'LD_AUDIT' \
   && fail "steamOnly: no injection" || ok "steamOnly: no injection"
+# no slssteam -> no share dir: it exists only to satisfy game-launch LD_AUDIT
+nix eval --raw '.#nixosConfigurations.steamOnly.config.system.activationScripts' --apply 's: builtins.toJSON (builtins.attrNames s)' 2>/dev/null | grep -q 'nix-crab-slssteam-share' \
+  && fail "steamOnly: no share link without slssteam" || ok "steamOnly: no share link without slssteam"
 
 [ "$(eval_json '.#nixosConfigurations.steamSugar.config.programs.steam.enable')" = "true" ] \
   && ok "steamSugar: bool shorthand (steam = true) enables Steam" || fail "steamSugar: steam = true"
@@ -111,6 +120,8 @@ p2=$(nix derivation show "$(eval_raw '.#nixosConfigurations.steamOnly.config.pro
 
 nix derivation show "$(eval_raw '.#nixosConfigurations.moon.config.programs.steam.package.drvPath')" 2>/dev/null | grep -q 'slsteam-moon.*/library-inject.so' \
   && ok "moon: slsteam-moon injected" || fail "moon: slsteam-moon injected"
+eval_raw '.#nixosConfigurations.moon.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -q 'slsteam-moon-.*/SLSsteam.so' \
+  && ok "moon: share link points at the fork" || fail "moon: share link"
 eval_raw '.#nixosConfigurations.moon.config.system.activationScripts."nix-crab-luatools".text' | grep -q 'Lumen' \
   && ok "moon: luatools sync is an activation snippet" || fail "moon: luatools activation"
 nix eval --raw --apply 's: builtins.toJSON (builtins.attrNames s)' '.#nixosConfigurations.moon.config.systemd.user.services' 2>/dev/null | grep -q nix-crab-lumen \

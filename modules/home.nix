@@ -143,6 +143,21 @@
       targetFile = "${target.home}/.config/SLSsteam/config.yaml";
       netsockLink = "${target.home}/.config/SLSsteam/tools/netsock/netsock.so";
       userScoped = target.user != null;
+
+      # Upstream's `setup.sh install` copies the two audit libraries to
+      # ~/.local/share/SLSsteam (cp ./bin/*) — the imperative layout every
+      # non-NixOS install uses. An h3adcr-b-patched ~/.steam/steam/steam.sh
+      # exports LD_AUDIT from exactly there just before exec, for EVERY GAME
+      # LAUNCH: the Steam client honors the store path from slssteam.nix, but
+      # games spawned through steam.sh get steam.sh's value, not the client's.
+      # The old home-manager home.file carried this link (for a presence
+      # check); dropping home-manager dropped it and games silently lost
+      # SLSsteam while the client kept loading — recreate the canonical dir as
+      # links into the SAME store path the LD_AUDIT override uses, so both
+      # spellings resolve to one identical SLSsteam.
+      slsShare = "${target.home}/.local/share/SLSsteam";
+      slsPkg = if cfg.slssteam-moon.enable then mkSlsteamMoon pkgs else mkSlsSteam pkgs;
+      injectionOn = cfg.slssteam.enable || cfg.slssteam-moon.enable;
     in
     {
       config = {
@@ -261,6 +276,30 @@
               ln -sfnT "${steamnetsock}" "$link"
               own "$(dirname "$link")"
               echo "nix-crab: linked netsock.so to $link"
+            ''
+        );
+
+        # The other half of injection: keep upstream's canonical install dir
+        # (~/.local/share/SLSsteam) alive, since steam.sh-launched games read
+        # LD_AUDIT from there (see slsShare above).
+        system.activationScripts."nix-crab-slssteam-share" = lib.mkIf (injectionOn && userScoped) (
+          import ./activate.nix
+            {
+              inherit lib pkgs;
+              user = target.user;
+              home = target.home;
+            }
+            "slssteam-share"
+            ''
+              share="${slsShare}"
+              mkdir -p "$share"
+              # -f replaces h3adcr-b's stale regular copy (a 0-byte
+              # library-inject.so), -T stops a symlinked dir from nesting.
+              # Both targets are the injected fork's own store files.
+              ln -sfnT "${slsPkg}/SLSsteam.so" "$share/SLSsteam.so"
+              ln -sfnT "${slsPkg}/library-inject.so" "$share/library-inject.so"
+              own "$share"
+              echo "nix-crab: linked SLSsteam into $share"
             ''
         );
       };
