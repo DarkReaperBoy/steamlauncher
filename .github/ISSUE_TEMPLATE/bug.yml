@@ -1,0 +1,36 @@
+name: Bug report
+description: Something misbehaved — the status dump below usually answers the first three questions.
+title: "[bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. `nix-crab-status --json` captures the config, the
+        injected fork, the LuaTools state and the patcher state in one paste —
+        please include it.
+  - type: textarea
+    id: status
+    attributes:
+      label: Status dump
+      description: Output of `nix-crab-status --json`
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: nixos
+    attributes:
+      label: NixOS version
+      description: "`nixos-version` (and the nixpkgs branch you follow, if not unstable)"
+      placeholder: "26.05.20261001.x"
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: The `programs.nix-crab.*` block you are using (secrets removed).
+      render: nix
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened vs. what you expected
+    validations:
+      required: true
