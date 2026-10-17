@@ -1,5 +1,7 @@
 # nix-crab
 
+[![ci](https://github.com/DarkReaperBoy/steamlauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkReaperBoy/steamlauncher/actions/workflows/ci.yml)
+
 Declarative Steam for NixOS — SLSsteam injection, Millennium *or* LuaTools, per-game Steam
 configuration, ACCELA, SteaMidra, netsock and a client-downgrade tool — written as **one flat
 `programs.nix-crab.*` block in your NixOS config**. An updated continuation of
@@ -502,7 +504,8 @@ own published artifacts* — never compiled here. Their versions and hashes live
 
 `./ci/update-binaries.sh` asks each repository for its newest release, downloads the asset,
 verifies it against the `.sha256` that project publishes next to it, and rewrites the file.
-**CI runs that every day** (`.github/workflows/daily.yml`), together with `nix flake update`, then
+**CI runs that every day** (the `sync` job of `.github/workflows/ci.yml`), together with
+`nix flake update`, then
 re-evaluates the whole flake, fetches every binary, and opens a PR when anything moved. That PR is
 validated again by `nix flake check` before merging — so "is it still working?" and "is it still
 newest?" are answered on the same daily cycle, with no binary cache of our own to maintain.
@@ -549,6 +552,30 @@ What this flake re-exports instead of reimplementing:
 
 Everything else here — the config merge, the LuaTools install, the add-on installer, the downgrade
 wrapper and the two commands — exists because no upstream ships it declaratively.
+
+## Tests
+
+`tests/` is a separate flake that consumes this one (`path:..`, so it always tests the checkout it
+sits in — no lock to refresh) and exercises the whole surface:
+
+```bash
+cd tests
+./test-eval.sh    # eval assertions: forwarding, user detection, alias, the package knob,
+                  # and every bad* config must FAIL with the intended assertion message
+./test-writer.sh  # the config writer, activated for real in sandbox homes:
+                  # config.yaml merge, plugin keys carried over, netsock, Lumen,
+                  # ACCELA seed, Millennium add-ons, the NixOS-path activation
+```
+
+Coverage: `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,smokeNixos,ambiguousUser,
+explicitUser,badCombo,badSteamOff}` and `homeConfigurations.{bare,upstreamCfg,smoke,smokeFake,
+badSettings,badNetsock}` — `bare` proves nothing turns itself on, `bad*` must fail evaluation with
+the right assertion message, and `full` proves `LD_AUDIT` and `MILLENNIUM_RUNTIME_PATH` end up on
+the same Steam package.
+
+CI runs all of it on every push and pull request, together with `nix flake check`, a formatting
+gate and a build of **every** package output — so a PR that changes anything here is validated the
+same way.
 
 ## Caveats
 

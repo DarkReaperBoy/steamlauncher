@@ -1,35 +1,74 @@
-name: daily upstream sync
+name: ci
 
-# The "heavenly cycle", once a day:
-#   1. ci/update-binaries.sh picks up every new upstream release binary
-#      (verifying each against the sha256 that project publishes);
-#   2. `nix flake update` moves the git inputs;
-#   3. `nix flake check` + a build of every swapped-in binary prove the result
-#      still evaluates and still fetches;
-#   4. a PR is opened with whatever changed, and the normal `flake check`
-#      workflow validates that PR again before it merges.
-#
-# There is deliberately no binary cache of our own: everything that can be
-# prebuilt is already somebody else's release asset, so a rebuild is a download.
+# One workflow, two jobs:
+#   check — every push/PR: evaluate, format-check, build every package, run the
+#           test suite (tests/: eval assertions + the config-writer activations).
+#   sync  — daily (+ manual): pick up new upstream release binaries, refresh
+#           flake.lock, re-verify, and open a PR with whatever moved.
 on:
+  push:
+  pull_request:
   workflow_dispatch:
   schedule:
-    # daily, 04:17 UTC
+    # daily, 04:17 UTC — the upstream sync
     - cron: "17 4 * * *"
 
+# one run per ref; a newer push supersedes an in-flight one
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  sync:
+  check:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v16
+        uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
+
+      - name: Cache
+        uses: DeterminateSystems/magic-nix-cache-action@6221693898146dc97e38ad0e013488a16477a4c4 # v9
+
+      - name: Evaluate
+        run: nix flake check
+
+      - name: Formatting
+        run: |
+          nix fmt
+          git diff --exit-code
+
+      - name: Build every package output
+        run: >
+          nix build -L
+          .#sls-steam .#slsteam-moon .#millennium .#lumen .#luatools
+          .#netsock .#accela .#steamidra .#steam-config-patcher
+          .#ticket-grabber .#schema-grabber
+          .#nix-crab-status .#nix-crab-update .#nix-crab-downgrade
+
+      - name: Test suite (eval assertions + config writer)
+        run: |
+          cd tests
+          ./test-eval.sh
+          ./test-writer.sh
+
+  sync:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
 
       - name: Pick up new upstream release binaries
         # tee outside the worktree: anything the action might otherwise see as a
@@ -50,7 +89,7 @@ jobs:
       - name: Open a PR if anything moved
         id: create-pr
         continue-on-error: true
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@6d6857d36972b65feb161a90e484f2984215f83e # v6.0.5
         with:
           add-paths: |
             upstream.lock.json
@@ -68,7 +107,7 @@ jobs:
             - `flake.lock` — git inputs (`nix flake update`).
 
             This workflow already ran `nix flake check` and built every package
-            that changed, and `flake check` runs again on this PR.
+            that changed, and the full `check` job runs again on this PR.
 
       # The repo setting "Allow GitHub Actions to create or approve pull requests"
       # may be off; when it is, the branch still gets pushed above, so the sync
