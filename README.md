@@ -444,7 +444,7 @@ license only enters through the options, evaluated against *your* nixpkgs config
 
 | Package | Build / run |
 | ------- | ----------- |
-| `sls-steam` (upstream `SLSsteam.so` + `library-inject.so`) | `nix build .#sls-steam` |
+| `sls-steam` (upstream's own release: `SLSsteam.so` + `library-inject.so` + config) | `nix build .#sls-steam` |
 | `slsteam-moon` (the fork's own release zip) | `nix build .#slsteam-moon` |
 | `millennium` (Millennium's own release tarball) | `nix build .#millennium` |
 | `lumen`, `luatools` (LuaTools, their own release zips) | `nix build .#lumen` |
@@ -489,8 +489,8 @@ same files.
 
 There are two kinds of update, and the repo tracks both.
 
-**Upstream release binaries.** Millennium, slsteam-moon, Lumen and LuaTools are consumed as *their
-own published artifacts* — never compiled here. Their versions and hashes live in
+**Upstream release binaries.** SLSsteam, Millennium, slsteam-moon, Lumen and LuaTools are consumed
+as *their own published artifacts* — never compiled here. Their versions and hashes live in
 `upstream.lock.json`, a **generated** file:
 
 ```json
@@ -547,7 +547,7 @@ What this flake re-exports instead of reimplementing:
 | [steam-config-nix](https://github.com/different-name/steam-config-nix) | `steam.config.*` (alias), NixOS + HM modules |
 | [home-manager](https://github.com/nix-community/home-manager) | the whole home side, driven from NixOS |
 | [Millennium](https://github.com/SteamClientHomebrew/Millennium) | its own Nix overlay (`millennium-steam`) |
-| [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own package output (`sls-steam`) |
+| [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own release binaries (`sls-steam`, grabbers) |
 | [enter-the-wired](https://github.com/ciscosweater/enter-the-wired) | its own AppImage package |
 
 Everything else here — the config merge, the LuaTools install, the add-on installer, the downgrade

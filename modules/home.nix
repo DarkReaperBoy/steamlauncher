@@ -4,7 +4,7 @@
 # place that wires units into outputs, so package/option bits stay identical.
 {
   steamnetsock,
-  sls-steam,
+  mkSlsSteam,
   mkSlsteamMoon,
 }:
 {
@@ -73,14 +73,14 @@
       # contains every key that fork's C++ reads, so the generated file never
       # trips "Config loading issues" notifications, and its comments survive
       # into the output. The user's overlay is applied on top — only what they
-      # set overrides the documented default. Moon's base comes from the same
-      # release archive its binaries come from; upstream's from the pinned
-      # input, tracking HEAD with `nix flake update`. Nothing is hardcoded.
+      # set overrides the documented default. Both bases come from the same
+      # release archive as the binaries they describe — nothing hardcoded,
+      # nothing from a source tree that may have drifted.
       forkDefault =
         if cfg.slssteam.moon.enable then
           "${mkSlsteamMoon pkgs}/res/config.yaml"
         else
-          "${sls-steam}/res/config.yaml";
+          "${mkSlsSteam pkgs}/res/config.yaml";
 
       # Two paths: with nothing to write (no settings, no flake defaults) the
       # fork default is used verbatim, with no re-serialization at all — yq's

@@ -3,13 +3,13 @@
 # flake.nix instantiates this once and takes `.module` (NixOS module output)
 # and `.mk*` (packages.* outputs), so a package and the option that installs
 # it are always the same derivation.
-{ sls-steam, mkSlsteamMoon }:
+{ mkSlsSteam, mkSlsteamMoon }:
 rec {
-  # Upstream SLSsteam artefacts (SLSsteam.so + library-inject.so), same as the
-  # official wiki's NixOS instructions use.
-  mkSlsSteam = pkgs: sls-steam.packages.${pkgs.stdenv.hostPlatform.system}.sls-steam;
-  mkTicketGrabber = pkgs: sls-steam.packages.${pkgs.stdenv.hostPlatform.system}.ticket-grabber;
-  mkSchemaGrabber = pkgs: sls-steam.packages.${pkgs.stdenv.hostPlatform.system}.schema-grabber;
+  # `mkSlsSteam` (SLSsteam.so + library-inject.so) and `mkSlsteamMoon` are the
+  # upstream release binaries threaded in from modules/upstream-binaries.nix;
+  # the choice between them is one store path. The .NET tools
+  # (ticket-grabber/schema-grabber) live in packages.* only — nothing installs
+  # them.
 
   # slsteam-moon: fork with a native Lua manifest importer. Its own GitHub
   # release ships the two injected objects, so this is a fetch of that archive
@@ -30,8 +30,7 @@ rec {
 
       # Both forks ship the same two artefacts under the same names (SLSsteam.so +
       # library-inject.so), so the choice is one store path, not two branches of
-      # wiring. slsteam-moon is built from source — see mkSlsteamMoon above for
-      # the toolchain and the GCC <cstdint> workaround.
+      # wiring — both are release binaries from modules/upstream-binaries.nix.
       sls = if cfg.slssteam-moon.enable then mkSlsteamMoon pkgs else upstream;
 
       injectionEnabled = cfg.slssteam.enable || cfg.slssteam-moon.enable;

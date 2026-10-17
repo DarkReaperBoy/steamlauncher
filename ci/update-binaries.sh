@@ -4,11 +4,13 @@
 #
 # The hash for every asset comes from the `<asset>.sha256` sidecar that project
 # publishes next to the binary — downloaded here, verified against the asset
-# itself, and only then written. Nix re-verifies it on every fetch, so a wrong
-# hash fails the build loudly instead of shipping something unexpected.
+# itself, and only then written. If a project publishes no sidecar (SLSsteam
+# doesn't), the hash of the fetched bytes is recorded instead and noted on
+# stdout; Nix pins and re-verifies it on every download either way.
 #
-# Run it by hand (./ci/update-binaries.sh) or let the daily cache workflow do
-# it; either way the diff is meant to be committed (the workflow opens a PR).
+# Run it by hand (./ci/update-binaries.sh) or let the daily `sync` job of
+# .github/workflows/ci.yml do it; either way the diff is meant to be committed
+# (the job opens a PR).
 #
 # Needs: curl, python3, nix (for the hash round-trip), unzip/tar to verify.
 set -euo pipefail

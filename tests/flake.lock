@@ -6,7 +6,6 @@
         "home-manager": "home-manager",
         "millennium": "millennium",
         "nixpkgs": "nixpkgs",
-        "sls-steam": "sls-steam",
         "steam-config-nix": "steam-config-nix",
         "steamidra": "steamidra",
         "steamnetsock": "steamnetsock"
@@ -200,27 +199,6 @@
         "crab": "crab",
         "home-manager": "home-manager_2",
         "nixpkgs": "nixpkgs_2"
-      }
-    },
-    "sls-steam": {
-      "inputs": {
-        "nixpkgs": [
-          "crab",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1791984735,
-        "narHash": "sha256-qTgWYsCg/pi6wI1PM4lolldIUNhokvsalfYbyjfIoKk=",
-        "owner": "AceSLS",
-        "repo": "SLSsteam",
-        "rev": "136f614f979d6038f7cee1bc6db5261539a5ac9e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "AceSLS",
-        "repo": "SLSsteam",
-        "type": "github"
       }
     },
     "steam-config-nix": {

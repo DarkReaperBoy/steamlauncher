@@ -33,8 +33,57 @@ let
       hash = upstream.${name}.hash;
     };
   versionOf = name: upstream.${name}.version;
+
+  # SLSsteam's release is one solid 7z holding every artefact this flake used
+  # to compile: the two injected objects, the config merge base, and both .NET
+  # tools as prebuilt `dotnet publish` output.
+  unpackSlssteam = pkgs: src: ''
+    ${pkgs.p7zip}/bin/7z x ${src} -y -osrc >/dev/null
+  '';
+  slssteamToolPath = name: "src/tools/${name}/bin/Release/net9.0/linux-x64/publish/${name}";
 in
 rec {
+  # Upstream SLSsteam: identical layout to upstream's own package output
+  # ($out/SLSsteam.so + $out/library-inject.so), plus res/config.yaml so the
+  # merge base for the managed config comes from the same archive as the
+  # binaries. Named `sls-steam-…` on purpose — nix-crab-status detects the
+  # injected fork by matching that store-path name in LD_AUDIT.
+  mkSlsSteam =
+    pkgs:
+    pkgs.runCommand "sls-steam-${versionOf "slssteam"}" { } ''
+      ${unpackSlssteam pkgs (srcFor pkgs "slssteam")}
+      mkdir -p "$out/res"
+      cp src/bin/SLSsteam.so src/bin/library-inject.so "$out/"
+      cp src/res/config.yaml "$out/res/"
+    '';
+
+  # The two SLSsteam tools, published as framework-dependent .NET 9 apps:
+  # nothing is compiled, the wrapper only points DOTNET_ROOT at nixpkgs'
+  # dotnet-runtime_9 — the same store path upstream's own wrapper uses.
+  mkSlssteamTool =
+    pkgs: name:
+    pkgs.runCommand "${name}-${versionOf "slssteam"}"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        meta = {
+          description = "SLSsteam ${name}";
+          homepage = "https://github.com/AceSLS/SLSsteam";
+          license = pkgs.lib.licenses.agpl3Only;
+          platforms = pkgs.lib.platforms.linux;
+        };
+      }
+      ''
+        ${unpackSlssteam pkgs (srcFor pkgs "slssteam")}
+        mkdir -p "$out/bin" "$out/lib/${name}"
+        cp "${slssteamToolPath name}" "$out/lib/${name}/${name}"
+        chmod +x "$out/lib/${name}/${name}"
+        makeWrapper "$out/lib/${name}/${name}" "$out/bin/${name}" \
+          --set DOTNET_ROOT "${pkgs.dotnet-runtime_9}/share/dotnet"
+      '';
+
+  mkTicketGrabber = pkgs: mkSlssteamTool pkgs "ticket-grabber";
+  mkSchemaGrabber = pkgs: mkSlssteamTool pkgs "schema-grabber";
+
   # slsteam-moon's own release zip: bin/SLSsteam.so + bin/library-inject.so
   # (the two injected objects, same names as the source build) and
   # res/config.yaml — the merge base for the managed config, now taken from

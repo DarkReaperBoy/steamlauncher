@@ -4,18 +4,10 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    # SLSsteam upstream — the .so packages AND res/config.yaml, whose keys are
-    # mirrored as typed options in modules/settings.nix.
-    # Tracks upstream HEAD on `nix flake update`.
-    sls-steam = {
-      url = "github:AceSLS/SLSsteam";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # slsteam-moon: SLSsteam fork with a native Lua manifest importer (the
-    # maintained path for the LuaTools workflow). Its GitHub release ships the
-    # injected objects, so it is fetched, not built — see
-    # modules/upstream-binaries.nix and upstream.lock.json.
+    # SLSsteam upstream, slsteam-moon, Lumen, LuaTools and Millennium are all
+    # consumed as their own GitHub release binaries — versions and hashes live
+    # in upstream.lock.json, refreshed by ci/update-binaries.sh. Nothing is
+    # compiled from source.
 
     # Lumen (static Lua backend) + the LuaTools plugin port, both from the
     # slsteam-moon maintainer. Also release binaries, same mechanism.
@@ -72,7 +64,6 @@
     {
       self,
       nixpkgs,
-      sls-steam,
       steamnetsock,
       steamidra,
       millennium,
@@ -92,8 +83,7 @@
       # settings.nix, millennium*.nix — are plain modules, imported where
       # used.)
       slssteamUnit = import ./modules/slssteam.nix {
-        inherit sls-steam;
-        inherit (upstreamBinaries) mkSlsteamMoon;
+        inherit (upstreamBinaries) mkSlsSteam mkSlsteamMoon;
       };
       downgradeUnit = import ./modules/downgrade.nix { };
       accelaUnit = import ./modules/accela.nix { inherit enter-the-wired; };
@@ -103,12 +93,12 @@
       };
       toolsUnit = import ./modules/tools.nix { };
       homeUnit = import ./modules/home.nix {
-        inherit steamnetsock sls-steam;
-        inherit (upstreamBinaries) mkSlsteamMoon;
+        inherit steamnetsock;
+        inherit (upstreamBinaries) mkSlsSteam mkSlsteamMoon;
       };
 
-      # Upstream release binaries (Millennium, slsteam-moon, Lumen, LuaTools):
-      # fetched from each project's own GitHub Releases, versioned by
+      # Upstream release binaries (SLSsteam, Millennium, slsteam-moon, Lumen,
+      # LuaTools): fetched from each project's own GitHub Releases, versioned by
       # upstream.lock.json — a generated file, refreshed daily by
       # ci/update-binaries.sh. Nothing here is compiled.
       upstreamBinaries = import ./modules/upstream-binaries.nix { };
@@ -146,15 +136,15 @@
         rec {
           # software
           accela = accelaUnit.mkAccela pkgs; # ACCELA depot downloader (clean-Qt launcher)
-          sls-steam = slssteamUnit.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream)
+          sls-steam = upstreamBinaries.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream's own release)
           slsteam-moon = upstreamBinaries.mkSlsteamMoon pkgs; # the LuaTools fork (its own release)
           netsock = homeUnit.mkNetsock pkgs; # multiplayer-fix .so (per-game LD_AUDIT)
           steamidra = steamidraUnit.mkSteamidra pkgs; # SteaMidra (SFF) launcher
           lumen = upstreamBinaries.mkLumen pkgs; # LuaTools backend dist
           luatools = upstreamBinaries.mkLuatools pkgs; # LuaTools plugin dist
           millennium = upstreamBinaries.mkMillennium pkgs; # Millennium hook (its own release)
-          ticket-grabber = slssteamUnit.mkTicketGrabber pkgs; # SLSsteam tool
-          schema-grabber = slssteamUnit.mkSchemaGrabber pkgs; # SLSsteam tool
+          ticket-grabber = upstreamBinaries.mkTicketGrabber pkgs; # SLSsteam tool
+          schema-grabber = upstreamBinaries.mkSchemaGrabber pkgs; # SLSsteam tool
           steam-config-patcher = steam-config-nix.packages.${system}.steam-config-patcher; # steam-config-nix's patcher
 
           # this flake's own commands
