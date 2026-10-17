@@ -81,6 +81,19 @@ nix derivation show "$(eval_raw '.#nixosConfigurations.steamOnly.config.programs
 [ "$(eval_json '.#nixosConfigurations.steamSugar.config.programs.steam.enable')" = "true" ] \
   && ok "steamSugar: bool shorthand (steam = true) enables Steam" || fail "steamSugar: steam = true"
 
+# the extraPkgs default baseline must be there WITHOUT anyone writing the option...
+eval_json '.#nixosConfigurations.steamOnly.config.programs.nix-crab.steam.extraPkgs' | grep -q gamemode \
+  && ok "extraPkgs: baseline list ships as the option default" || fail "extraPkgs: option default baseline"
+# ...but a RAW programs.steam.package must keep working next to us: the
+# baseline-only override goes in at mkDefault priority, so it never turns
+# into a second same-priority definition (types.package: two of those = eval
+# error) and the user's own package wins.
+p3=$(nix derivation show "$(eval_raw '.#nixosConfigurations.rawSteamPkg.config.programs.steam.package.drvPath')" 2>/dev/null | grep -c 'NIX_CRAB_RAW')
+p4=$(nix derivation show "$(eval_raw '.#nixosConfigurations.rawSteamPkgNixCrabOn.config.programs.steam.package.drvPath')" 2>/dev/null | grep -c 'NIX_CRAB_RAW')
+[ "$p3" -ge 1 ] && [ "$p4" -ge 1 ] \
+  && ok "extraPkgs: raw programs.steam.package wins over the baseline (no conflict)" \
+  || fail "extraPkgs: raw package conflict ($p3/$p4)"
+
 [ "$(eval_json '.#nixosConfigurations.steamPassthrough.config.programs.steam.remotePlay.openFirewall')" = "true" ] \
   && ok "passthrough: remotePlay.openFirewall reaches programs.steam" || fail "passthrough: remotePlay"
 [ "$(eval_json '.#nixosConfigurations.steamPassthrough.config.programs.steam.protontricks.enable')" = "true" ] \

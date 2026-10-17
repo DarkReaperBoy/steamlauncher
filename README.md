@@ -86,7 +86,7 @@ Everything is off/null by default. `programs.nix-crab`:
 | `steam.enable` | system | Turns the Steam client on/off. `null` (default) = on as soon as a nix-crab feature needs it. |
 | `steam.package` | system | The Steam package everything is built on (default `pkgs.steam`, or Millennium's when `millennium.enable`). Injection is applied on top. |
 | `steam.extraCompatPackages` | system | Compatibility tools made available to Steam. |
-| `steam.extraPkgs` | system | Extra FHS libraries, fed into the single `steam.override` nix-crab performs (the old overlay workaround for this is gone). Plain list, or `p: [...]` applied inside the FHS environment. |
+| `steam.extraPkgs` | system | Extra FHS libraries, fed into the single `steam.override` nix-crab performs (the old overlay workaround for this is gone). Defaults to a baseline native-gaming set (libXcursor, libXi, libXinerama, libXScrnSaver, libpng, libpulseaudio, libvorbis, libstdc++, libkrb5, keyutils, gamemode); assigning replaces it, `[]` opts out. Plain list, or `p: [...]` applied inside the FHS environment. |
 | `steam.config.*` | system | **steam-config-nix**: per-game launch options, compat tools, Proton prefixes, beta branches, languages, winetricks, game files, artwork, non-Steam apps. Alias of upstream's `programs.steam.config`. |
 | `slssteam.enable` | system | Inject upstream SLSsteam (`LD_AUDIT` on the Steam package). |
 | `slssteam.extraEnv` | system | Extra environment variables on the Steam package. |
@@ -188,7 +188,7 @@ programs.nix-crab.steam = {
   package = pkgs.steam.override {                 # optional base; injection stacks on top
     extraEnv.MANGOHUD = true;
   };
-  extraPkgs = p: with p; [ libXcursor libXi ];    # FHS libs — one option, no overlay dance
+  extraPkgs = [ pkgs.libXcursor pkgs.libXi ];   # FHS libs — replaces the baseline list
   extraCompatPackages = [ pkgs.proton-ge-custom ];
 
   remotePlay.openFirewall = true;                 # anything programs.steam accepts passes
@@ -206,7 +206,12 @@ programs.nix-crab.steam = {
 **Why `extraPkgs` exists.** `programs.steam.package` is a `types.package` option — two definitions
 are an eval error, so extra FHS libraries used to require an `nixpkgs.overlays` workaround around
 the package. nix-crab performs the *single* override itself (injection env and extra libraries
-together), so the libraries live here and chain in with everything else.
+together), so the libraries live here and chain in with everything else. It defaults to the usual
+native-gaming baseline, so a plain `programs.nix-crab.steam.enable = true` already ships with
+X-cursor/Xinerama/XScreenSaver, the PulseAudio/Vorbis/PNG libs, krb5, keyutils and gamemode — no
+`p: with p; [...]` in your config unless you want *different* libs. When the override is
+baseline-only (no injection, no explicit `package`) it goes in at `mkDefault` priority, so your own
+raw `programs.steam.package` still wins instead of colliding with it.
 
 `programs.nix-crab.millennium.enable` swaps the default base for Millennium's own `millennium-steam`
 (a `steam.override` of its own), so a single `programs.steam.package` ends up carrying
@@ -382,7 +387,9 @@ Enable the plugin or pick the theme in Millennium's UI afterwards.
 
 Millennium itself is **fetched from its own GitHub release** (`millennium-<ver>-linux-x86_64.tar.gz`,
 seconds instead of a ~7 minute local compile of its C++/TypeScript tree), and the daily sync keeps
-that current. Expect a Steam client update to be able to break the hook. Millennium does not touch
+that current — including restoring the execute bits the release tarball loses (steamwebhelper
+runs Millennium's pressure-vessel shim directly; mode 644 there means the Steam client never
+opens its window). Expect a Steam client update to be able to break the hook. Millennium does not touch
 game processes, so it is irrelevant to VAC.
 
 ---
@@ -572,14 +579,19 @@ cd tests
                   # both NixOS-path writers, and extraPkgs landing in the FHS closure
 ```
 
-Coverage (35 evaluation checks + 39 writer/activation checks):
-`nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,steamSugar,steamPassthrough,smokeNixos,
-writerSmoke,writerFake,ambiguousUser,explicitUser,badCombo,badSteamOff,badSettings,badNetsock}` —
+Coverage (37 evaluation checks + 41 writer/activation checks):
+`nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,steamSugar,steamPassthrough,rawSteamPkg,
+rawSteamPkgNixCrabOn,smokeNixos,writerSmoke,writerFake,ambiguousUser,explicitUser,badCombo,
+badSteamOff,badSettings,badNetsock}` —
 `bare` proves nothing turns itself on and that home-manager is absent entirely, `bad*` must fail
-evaluation with the right assertion message, and `full` proves `LD_AUDIT` and
-`MILLENNIUM_RUNTIME_PATH` end up on the same Steam package. The writer suite extracts the real
+evaluation with the right assertion message, `full` proves `LD_AUDIT` and
+`MILLENNIUM_RUNTIME_PATH` end up on the same Steam package, and `rawSteamPkg*` prove a raw
+`programs.steam.package` beats the `extraPkgs` baseline instead of conflicting with it. The writer suite extracts the real
 `system.activationScripts."nix-crab-*"` text and runs it through a driver that mirrors NixOS'
-activate script (same `ERR` trap, same nonzero-exit contract).
+activate script (same `ERR` trap, same nonzero-exit contract), builds the baseline-laden FHS
+closure (`gamemode` in `steamOnly` — nobody set it there) and asserts Millennium's `pvs64`/`luavm`
+objects are executable (the release tarball ships them 644; without +x steamwebhelper can't
+exec the pressure-vessel shim and the Steam client never opens).
 
 CI is deliberately tiny. Everything heavy comes from upstream releases, so there is nothing to
 compile and nothing worth caching — a run is a Nix install plus an evaluation, **~30 seconds**, and

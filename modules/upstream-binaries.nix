@@ -148,11 +148,21 @@ rec {
   # lua VM, ...) under usr/lib/millennium/. modules/millennium.nix swaps this in
   # for the overlay's own build, so the overlay's steam wiring keeps consuming
   # it unchanged — no cmake, no bun, no TypeScript toolchain.
+  #
+  # chmod is NOT cosmetic: the release tarball ships everything mode 644 while
+  # the source build installed 755, and two of these are EXECUTED, not merely
+  # dlopen'd — create_pv_shim() symlinks libmillennium_pvs64 over
+  # /tmp/.millennium-pv-*/bin/pressure-vessel-unruntime, which steamwebhelper
+  # runs as its pressure-vessel entry point. A non-executable target makes that
+  # exec fail with "Permission denied", steamwebhelper crash-loops, and the
+  # Steam client never opens its window. dlopen'd .so files don't need +x, but
+  # 755 everywhere matches the source build exactly.
   mkMillennium =
     pkgs:
     pkgs.runCommand "millennium-${versionOf "millennium"}" { } ''
       mkdir -p "$out/lib"
       tar xf ${srcFor pkgs "millennium"}
       cp -a usr/lib/millennium/. "$out/lib/"
+      chmod -R 755 "$out/lib"
     '';
 }

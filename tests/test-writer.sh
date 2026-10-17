@@ -164,5 +164,29 @@ else
   fail "steam.extraPkgs: function-form lands in the FHS closure"
 fi
 
+# --- scenario 10: the default extraPkgs baseline lands in the FHS closure ----
+# steamOnly sets NO extraPkgs; the module's default baseline (gamemode among
+# it) must reach the built package without anybody writing the option.
+sb=$(nix build --no-link --print-out-paths \
+  '.#nixosConfigurations.steamOnly.config.programs.steam.package' 2>/dev/null | tail -1)
+if [ -n "$sb" ] && nix-store -qR "$sb" | grep -q 'gamemode'; then
+  ok "steam.extraPkgs: default baseline lands without being set"
+else
+  fail "steam.extraPkgs: default baseline lands without being set"
+fi
+
+# --- scenario 11: millennium's release binaries are executable ---------------
+# The release tarball ships mode 644; mkMillennium must chmod, because
+# create_pv_shim() SYMLINKS libmillennium_pvs64 to
+# /tmp/.millennium-pv-*/bin/pressure-vessel-unruntime, which steamwebhelper
+# execs. Non-executable there = "Permission denied" in a loop and the Steam
+# client never opens its window (that is exactly how this broke once).
+mp=$(nix build --no-link --print-out-paths "$root#millennium" 2>/dev/null | tail -1)
+if [ -n "$mp" ] && [ -x "$mp/lib/libmillennium_pvs64" ] && [ -x "$mp/lib/libmillennium_luavm_x86" ]; then
+  ok "millennium: pvs64 + luavm executable (pv shim can exec)"
+else
+  fail "millennium: pvs64 + luavm executable (pv shim can exec)"
+fi
+
 echo
 if [ "$FAILS" = 0 ]; then echo "ALL WRITER TESTS PASSED"; else echo "$FAILS TEST(S) FAILED"; exit 1; fi

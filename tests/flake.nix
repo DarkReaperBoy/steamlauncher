@@ -228,6 +228,37 @@
           }
         ];
 
+        # a raw programs.steam.package with nix-crab imported and no feature
+        # on: nix-crab must not claim the option (two definitions of a
+        # types.package option = eval error)
+        rawSteamPkg = mkOs [
+          (
+            { pkgs, ... }:
+            {
+              programs.steam = {
+                enable = true;
+                package = pkgs.steam.override { extraEnv.NIX_CRAB_RAW = "1"; };
+              };
+            }
+          )
+        ];
+
+        # same, but with nix-crab's own steam knob on: the default extraPkgs
+        # baseline must go in at mkDefault priority — the user's raw package
+        # still wins, no conflicting-definition error
+        rawSteamPkgNixCrabOn = mkOs [
+          (
+            { pkgs, ... }:
+            {
+              programs.nix-crab.steam.enable = true;
+              programs.steam = {
+                enable = true;
+                package = pkgs.steam.override { extraEnv.NIX_CRAB_RAW = "1"; };
+              };
+            }
+          )
+        ];
+
         # the config-writer scenarios, as plain NixOS config against
         # /tmp/hm-test (test-writer.sh extracts and runs the activation text)
         writerSmoke =

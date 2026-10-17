@@ -36,7 +36,25 @@ rec {
       steamDefaults = {
         enable = null;
         package = null;
-        extraPkgs = [ ];
+        # Baseline FHS libraries every Steam install gets, so the usual
+        # native-gaming set (X11 cursor/input/scrnsaver stubs, media libs,
+        # libstdc++, Kerberos/keyutils, GameMode) ships without every config
+        # spelling it out. Setting the option replaces this list; `extraPkgs = []`
+        # opts out entirely — and with no injection and no steam.package, that
+        # also stops nix-crab from touching programs.steam.package at all.
+        extraPkgs = with pkgs; [
+          libXcursor
+          libXi
+          libXinerama
+          libXScrnSaver
+          libpng
+          libpulseaudio
+          libvorbis
+          stdenv.cc.cc.lib
+          libkrb5
+          keyutils
+          gamemode
+        ];
         extraCompatPackages = [ ];
         config = { };
       };
@@ -102,7 +120,22 @@ rec {
         "config"
       ];
 
-      needsOverride = injectionEnabled || steamCfg.package != null || steamCfg.extraPkgs != [ ];
+      # nix-crab defines programs.steam.package only when IT turns Steam on
+      # (steamOn) and has something to put there: its injection, an explicit
+      # steam.package, or the extraPkgs baseline (non-empty by default;
+      # `extraPkgs = []` opts out). Merely importing the module, or raw-
+      # enabling programs.steam, leaves the option alone. A baseline-only
+      # override is applied at mkDefault priority, so a raw
+      # programs.steam.package still wins instead of colliding (types.package:
+      # two same-priority definitions = eval error); injection and an
+      # explicit steam.package keep normal priority — those staying loud is
+      # pre-existing behaviour (use programs.nix-crab.steam.package for both).
+      needsOverride =
+        steamOn && (injectionEnabled || steamCfg.package != null || steamCfg.extraPkgs != [ ]);
+
+      # Baseline only: nothing of ours that a raw package definition must not
+      # silently swallow (no LD_AUDIT, no user-chosen package).
+      baselineOnly = !injectionEnabled && steamCfg.package == null;
     in
     {
       # steam-config-nix under the nix-crab umbrella (programs.steam.config is
@@ -161,6 +194,11 @@ rec {
                     Steam FHS environment, exactly like nixpkgs' own extraPkgs
                     argument. (A list written with your own `pkgs` also works —
                     the FHS environment splices store paths.)
+
+                    Defaults to the baseline native-gaming set: libXcursor, libXi,
+                    libXinerama, libXScrnSaver, libpng, libpulseaudio, libvorbis,
+                    libstdc++, libkrb5, keyutils and gamemode. Assigning a value
+                    replaces the default; `[]` opts out.
                   '';
                 };
 
@@ -266,17 +304,23 @@ rec {
           (lib.mkIf needsOverride {
             # One override carries injection env and extraPkgs together; with
             # only steam.package set (no injection, no extraPkgs) the explicit
-            # package is used verbatim.
+            # package is used verbatim. Baseline-only (the default case) goes
+            # in at mkDefault priority so a raw programs.steam.package
+            # definition beats it instead of conflicting with it.
             package =
-              if injectionEnabled || steamCfg.extraPkgs != [ ] then
-                steamBase.override (
-                  {
-                    extraPkgs = extraPkgsFn;
-                  }
-                  // lib.optionalAttrs (injectEnv != { }) { extraEnv = injectEnv; }
-                )
-              else
-                steamCfg.package;
+              let
+                value =
+                  if injectionEnabled || steamCfg.extraPkgs != [ ] then
+                    steamBase.override (
+                      {
+                        extraPkgs = extraPkgsFn;
+                      }
+                      // lib.optionalAttrs (injectEnv != { }) { extraEnv = injectEnv; }
+                    )
+                  else
+                    steamCfg.package;
+              in
+              if baselineOnly then lib.mkDefault value else value;
           })
         ];
       };
