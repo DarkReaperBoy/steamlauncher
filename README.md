@@ -28,7 +28,7 @@ programs.nix-crab = {
       env.MANGOHUD = "1";
     };
   };
-  tools.enable = true;                                 # nix-crab-status / nix-crab-update
+  tools.enable = true;                                 # nix-crab-update (status comes with any feature)
 };
 ```
 
@@ -106,7 +106,7 @@ Everything is off/null by default. `programs.nix-crab`:
 | `downgrade.enable` | system | `nix-crab-downgrade` on PATH. |
 | `downgrade.package` | system | Replace the downgrade wrapper. |
 | `user` | system | Which user the home-side options apply to (auto-detected with one normal user). |
-| `tools.enable` | home | `nix-crab-status` and `nix-crab-update` on PATH. |
+| `tools.enable` | system | `nix-crab-update` on PATH. (`nix-crab-status` needs no switch — it installs with the first enabled nix-crab feature.) |
 
 Anything else `programs.steam` accepts (`remotePlay.openFirewall`, `protontricks`,
 `dedicatedServer`, `gamescopeSession`, …) is written under `steam.*` freeform and forwarded
@@ -226,6 +226,15 @@ value, not the client's. nix-crab re-creates that directory on every switch as l
 store path, so the imperative layout, the patched script and the Nix override all resolve to one
 identical SLSsteam. (Without the link, the client keeps loading SLSsteam while every *game*
 quietly loses it — the classic "SLSsteam runs but nothing changes" state.)
+
+**The injected `.so` is upstream's own Nix build, not the GitHub release asset.** Their flake
+(`nix-modules/default.nix`) compiles it with `pkgsi686Linux` openssl/curl/luajit, so the binary
+carries a RUNPATH into the store — `libcrypto`, `libssl` and `libcurl` resolve from Nix rather
+than whatever the host provides (this is exactly what their wiki's NixOS snippet consumes). This
+flake pins that input to a verified revision because the current release asset crashes the
+client — SIGSEGV inside SLSsteam's `hkCMInterface_RecvPkt` hook seconds after launch — while the
+pinned rev runs stably. The managed `config.yaml` base comes from the same source revision, so
+binary and config can never drift apart.
 
 ## Per-game configuration (steam-config-nix)
 
@@ -488,7 +497,7 @@ simply unpacked from upstream's release assets — `nix build` is a download, no
 
 | Package | Build / run |
 | ------- | ----------- |
-| `sls-steam` (upstream's own release: `SLSsteam.so` + `library-inject.so` + config) | `nix build .#sls-steam` |
+| `sls-steam` (upstream's own flake build of the pinned rev: `SLSsteam.so` + `library-inject.so` + config) | `nix build .#sls-steam` |
 | `slsteam-moon` (the fork's own release zip) | `nix build .#slsteam-moon` |
 | `millennium` (Millennium's own release tarball) | `nix build .#millennium` |
 | `lumen`, `luatools` (LuaTools, their own release zips) | `nix build .#lumen` |
@@ -565,7 +574,7 @@ What this flake re-exports or consumes instead of reimplementing:
 | -------- | -------------- |
 | [steam-config-nix](https://github.com/different-name/steam-config-nix) | `steam.config.*` (alias), its NixOS module re-exported |
 | [Millennium](https://github.com/SteamClientHomebrew/Millennium) | its own Nix overlay (`millennium-steam`) + release binaries |
-| [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own release binaries (`sls-steam`, grabbers) |
+| [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own flake build (pinned rev) for the injected .so, its release 7z for the grabbers |
 | [slsteam-moon](https://github.com/swwayps/slsteam-moon), [Lumen](https://github.com/swwayps/lumen), [luatools-moon](https://github.com/swwayps/luatools-moon) | their release binaries (injection, Lumen, the plugin) |
 | [enter-the-wired](https://github.com/ciscosweater/enter-the-wired) | its own AppImage package |
 
@@ -588,7 +597,7 @@ cd tests
                   # both NixOS-path writers, and extraPkgs landing in the FHS closure
 ```
 
-Coverage (40 evaluation checks + 43 writer/activation checks):
+Coverage (41 evaluation checks + 43 writer/activation checks):
 `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,steamSugar,steamPassthrough,rawSteamPkg,
 rawSteamPkgNixCrabOn,smokeNixos,writerSmoke,writerFake,ambiguousUser,explicitUser,badCombo,
 badSteamOff,badSettings,badNetsock}` —

@@ -68,7 +68,7 @@ eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-m
 # LD_AUDIT to ~/.local/share/SLSsteam for every game launch — without this
 # link games lose SLSsteam even though the client's store path works.
 eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -q '.local/share/SLSsteam' \
-  && eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -q 'sls-steam-.*/SLSsteam.so' \
+  && eval_raw '.#nixosConfigurations.full.config.system.activationScripts."nix-crab-slssteam-share".text' | grep -Eq '(sls-steam|SLSsteam)-[^/]*/SLSsteam.so' \
   && ok "full: canonical ~/.local/share/SLSsteam link is an activation snippet" || fail "full: share link activation"
 eval_json '.#nixosConfigurations.full.config.environment.systemPackages' | grep -q nix-crab-status \
   && ok "full: nix-crab-status installed system-wide" || fail "full: tools installed"
@@ -86,6 +86,10 @@ nix derivation show "$(eval_raw '.#nixosConfigurations.steamOnly.config.programs
 # no slssteam -> no share dir: it exists only to satisfy game-launch LD_AUDIT
 nix eval --raw '.#nixosConfigurations.steamOnly.config.system.activationScripts' --apply 's: builtins.toJSON (builtins.attrNames s)' 2>/dev/null | grep -q 'nix-crab-slssteam-share' \
   && fail "steamOnly: no share link without slssteam" || ok "steamOnly: no share link without slssteam"
+# nix-crab-status is part of using any feature — tools.enable must NOT be
+# required for it (steamOnly sets only the steam knob, never tools)
+eval_json '.#nixosConfigurations.steamOnly.config.environment.systemPackages' | grep -q nix-crab-status \
+  && ok "steamOnly: nix-crab-status installs without tools.enable" || fail "steamOnly: status auto-install"
 
 [ "$(eval_json '.#nixosConfigurations.steamSugar.config.programs.steam.enable')" = "true" ] \
   && ok "steamSugar: bool shorthand (steam = true) enables Steam" || fail "steamSugar: steam = true"

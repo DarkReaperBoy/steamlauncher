@@ -78,7 +78,7 @@ rec {
         done
         case "$LD" in
           *slsteam-moon*) INJECTION="slsteam-moon (LuaTools)" ;;
-          *sls-steam*)    INJECTION="upstream SLSsteam" ;;
+          *SLSsteam-*|*sls-steam*) INJECTION="upstream SLSsteam" ;;
         esac
       fi
 
@@ -264,18 +264,39 @@ rec {
       ...
     }:
     let
+      cfg = config.programs.nix-crab;
       target = import ./target.nix { inherit config lib; };
+
+      # nix-crab-status belongs to using nix-crab at all — the bug form asks
+      # for `nix-crab-status --json`, and every feature ships state it
+      # reports — so it installs with the first feature that is switched on.
+      # Requiring a separate tools.enable on top of the feature was one
+      # switch too many. tools.enable keeps its meaning for the maintenance
+      # command (nix-crab-update), which no feature depends on.
+      anyFeature =
+        (cfg.slssteam.enable or false)
+        || (cfg.slssteam-moon.enable or false)
+        || (cfg.millennium.enable or false)
+        || (cfg.netsock.enable or false)
+        || (cfg.luatools.enable or false)
+        || (cfg.downgrade.enable or false)
+        || (cfg.steamidra.enable or false)
+        || (cfg.accela.enable or false)
+        || (cfg.tools.enable or false)
+        || (cfg.steam.config.enable or false)
+        || (cfg.steam.enable or null) == true
+        || builtins.isAttrs (cfg.steam.enable or null);
     in
     {
       # HM-free: system-wide, like every NixOS program module does it. Writing
       # users.users.<user>.packages instead would recurse: the package gate
       # resolves the user, and resolution reads users.users (home-manager#594
       # documents the same trap).
-      config = lib.mkIf (config.programs.nix-crab.tools.enable && target.user != null) {
+      config = lib.mkIf (anyFeature && target.user != null) {
         environment.systemPackages = [
           (mkStatus pkgs)
-          (mkUpdate pkgs)
-        ];
+        ]
+        ++ lib.optionals cfg.tools.enable [ (mkUpdate pkgs) ];
       };
     };
 }

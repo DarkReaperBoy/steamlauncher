@@ -63,8 +63,9 @@
     };
 
     tools.enable = lib.mkEnableOption ''
-      this flake's commands on PATH: nix-crab-status (diagnostics, --json)
-      and nix-crab-update (flake update + rebuild + status).
+      nix-crab's maintenance command (nix-crab-update: flake update + rebuild
+      + status). nix-crab-status does NOT need this: it installs automatically
+      with the first programs.nix-crab feature that is enabled.
     '';
 
     luatools.enable = lib.mkEnableOption ''

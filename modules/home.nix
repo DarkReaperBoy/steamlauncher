@@ -79,9 +79,10 @@
       # contains every key that fork's C++ reads, so the generated file never
       # trips "Config loading issues" notifications, and its comments survive
       # into the output. The user's overlay is applied on top — only what they
-      # set overrides the documented default. Both bases come from the same
-      # release archive as the binaries they describe — nothing hardcoded,
-      # nothing from a source tree that may have drifted.
+      # set overrides the documented default. Both bases come from the very
+      # artefact the binaries describe (the pinned sls-steam source rev, the
+      # moon release archive) — nothing hardcoded, and the pin means the tree
+      # cannot drift under us.
       forkDefault =
         if cfg.slssteam.moon.enable then
           "${mkSlsteamMoon pkgs}/res/config.yaml"

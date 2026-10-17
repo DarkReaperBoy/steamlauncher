@@ -1,9 +1,15 @@
 # Upstream release binaries, driven by upstream.lock.json.
 #
+# What lives here: Millennium, slsteam-moon, Lumen, LuaTools — and the two
+# .NET tools from SLSsteam's release 7z. The injected SLSsteam.so is NOT
+# unpacked here any more: it comes from upstream's own flake (the pinned
+# sls-steam input in flake.nix), which carries the RUNPATH dependency
+# resolution their nix-modules/default.nix builds in.
+#
 # Every project here ships its own prebuilt artifact on GitHub Releases with a
 # `<asset>.sha256` sidecar. Fetching that instead of compiling from source:
 #   - replaces a 32-bit C++ build and two bun/cmake toolchains with a download,
-#   - removes three flake inputs (the sources are no longer needed at all),
+#   - removes source flake inputs for these projects,
 #   - makes the daily CI a fetch rather than a full rebuild, and
 #   - tracks each project's releases, refreshed by ci/update-binaries.sh.
 #
@@ -34,29 +40,16 @@ let
     };
   versionOf = name: upstream.${name}.version;
 
-  # SLSsteam's release is one solid 7z holding every artefact this flake used
-  # to compile: the two injected objects, the config merge base, and both .NET
-  # tools as prebuilt `dotnet publish` output.
+  # SLSsteam's release is one solid 7z; from it this file takes ONLY the two
+  # .NET tools (the injected objects and the config base come from the pinned
+  # sls-steam input instead — the release binary crashes the client, see
+  # flake.nix).
   unpackSlssteam = pkgs: src: ''
     ${pkgs.p7zip}/bin/7z x ${src} -y -osrc >/dev/null
   '';
   slssteamToolPath = name: "src/tools/${name}/bin/Release/net9.0/linux-x64/publish/${name}";
 in
 rec {
-  # Upstream SLSsteam: identical layout to upstream's own package output
-  # ($out/SLSsteam.so + $out/library-inject.so), plus res/config.yaml so the
-  # merge base for the managed config comes from the same archive as the
-  # binaries. Named `sls-steam-…` on purpose — nix-crab-status detects the
-  # injected fork by matching that store-path name in LD_AUDIT.
-  mkSlsSteam =
-    pkgs:
-    pkgs.runCommand "sls-steam-${versionOf "slssteam"}" { } ''
-      ${unpackSlssteam pkgs (srcFor pkgs "slssteam")}
-      mkdir -p "$out/res"
-      cp src/bin/SLSsteam.so src/bin/library-inject.so "$out/"
-      cp src/res/config.yaml "$out/res/"
-    '';
-
   # The two SLSsteam tools, published as framework-dependent .NET 9 apps:
   # nothing is compiled, the wrapper only points DOTNET_ROOT at nixpkgs'
   # dotnet-runtime_9 — the same store path upstream's own wrapper uses.

@@ -5,6 +5,7 @@
         "enter-the-wired": "enter-the-wired",
         "millennium": "millennium",
         "nixpkgs": "nixpkgs",
+        "sls-steam": "sls-steam",
         "steam-config-nix": "steam-config-nix",
         "steamidra": "steamidra",
         "steamnetsock": "steamnetsock"
@@ -156,6 +157,28 @@
       "inputs": {
         "crab": "crab",
         "nixpkgs": "nixpkgs_2"
+      }
+    },
+    "sls-steam": {
+      "inputs": {
+        "nixpkgs": [
+          "crab",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790865579,
+        "narHash": "sha256-c5pYwtlTd3l4RHh484COxuKIz/zkldL0Flxz3oBOSVM=",
+        "owner": "AceSLS",
+        "repo": "SLSsteam",
+        "rev": "9c829a7ddae52b6fdeee37933a83e8d6f4b9f1c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "AceSLS",
+        "repo": "SLSsteam",
+        "rev": "9c829a7ddae52b6fdeee37933a83e8d6f4b9f1c6",
+        "type": "github"
       }
     },
     "steam-config-nix": {
