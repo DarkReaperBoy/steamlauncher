@@ -1,3 +1,6 @@
+# Millennium add-on installer (config only; the options live in
+# home-options.nix). Unit shape: plain module imported by homeModules and, on
+# the NixOS path, into home-manager.users.<user>.
 {
   config,
   lib,
@@ -24,37 +27,6 @@ let
     );
 in
 {
-  options.programs.nix-crab.millennium = {
-    plugins = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
-      example = [ "3dc714a7c1b1" ];
-      description = ''
-        Millennium plugin IDs from https://steambrew.app/plugins -- the `id` in
-        a plugin's store URL (https://steambrew.app/plugin/<id>). Each one is
-        unpacked into ~/.local/share/millennium/plugins on activation unless it
-        is already installed.
-      '';
-    };
-
-    themes = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
-      example = [
-        "1wwKwvHrFuzMs7Kb1Uzu"
-        "Adwaita"
-      ];
-      description = ''
-        Millennium theme IDs from https://steambrew.app/themes -- the `id` in a
-        theme's store URL (https://steambrew.app/theme/<id>), or the theme's
-        display name or GitHub repo name, whichever is at hand. Each one is
-        unpacked into ~/.steam/steam/millennium/themes on activation
-        unless it is already installed. Pick the active theme in Millennium's UI
-        afterwards.
-      '';
-    };
-  };
-
   # Not gated on the lists being non-empty: emptying them has to still run, or
   # removing the last ID would leave the addon installed forever.
   config = {

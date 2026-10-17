@@ -92,6 +92,10 @@ in
       description = ''
         Map of real AppId -> fake AppId, for online play in some games.
         Never run two apps with the same FakeAppId.
+
+        The LuaTools plugin can also add entries from its UI; those are kept
+        across switches while you leave this option unset, and reset to what
+        you write once you set it.
       '';
     };
 
@@ -196,9 +200,11 @@ in
 
     DisableCloud = maybe types.bool // {
       description = ''
-        Turn off Steam Cloud for unlocked games (Valve blocks uploads to
-        unowned AppIds). Default upstream: yes; set false when using
-        CloudRedirect so it can sync instead.
+        Turn off Steam Cloud for unlocked games (Valve rejects uploads to
+        unowned AppIds, so leaving it on just produces a cloud-sync error per
+        game). No cloud-save hook ships with this flake any more, so the flake
+        writes `true` for you unless you set this yourself; only turn it off if
+        you install a cloud-save tool on your own.
       '';
     };
 
@@ -339,6 +345,48 @@ in
       )
       // {
         description = "slsteam-moon's manifest-sharing (donation) block.";
+      };
+
+    ManifestPins =
+      maybe (
+        types.attrsOf (
+          types.submodule {
+            options = {
+              locked = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Keep the app on its pinned manifests instead of updating it.";
+              };
+
+              build_id = mkOption {
+                type = types.ints.unsigned;
+                default = 0;
+                description = "Build the pins belong to; 0 when unknown.";
+              };
+
+              depots = mkOption {
+                type = types.attrsOf types.str;
+                default = { };
+                description = ''
+                  DepotId -> manifest gid, as a string (uint64 does not fit a
+                  YAML int safely).
+                '';
+              };
+            };
+          }
+        )
+      )
+      // {
+        description = ''
+          slsteam-moon's per-depot manifest pins (appid -> {locked, build_id,
+          depots}). Read by the C++ but absent from the default config.yaml — the
+          block is created on demand.
+
+          The LuaTools plugin writes it itself whenever you add or remove a game,
+          so leave this unset while luatools.enable is on: the managed file then
+          carries the plugin's own pins over on every activation. Declaring it
+          here makes Nix the owner — the next switch resets it to what you wrote.
+        '';
       };
 
     extraSettings = mkOption {

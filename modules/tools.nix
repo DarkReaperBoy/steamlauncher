@@ -2,26 +2,14 @@
 # takes `.module` (home module, owns the tools.enable option) and
 # `.mkStatus`/`.mkUpdate` (the nix-crab-status / nix-crab-update packages) —
 # same scripts both places.
-{
-  cloudredirect,
-  cloudredirect-moon,
-}:
+{ }:
 rec {
   # -- nix-crab tooling -----------------------------------------------------
 
-  # Diagnostic command: client version, SLSsteam config, netsock, CloudRedirect
-  # status (incl. which hook is wired up), injection fork, LuaTools state.
+  # Diagnostic command: client version, SLSsteam config, netsock, steam-config-nix
+  # state, injection fork, LuaTools/Lumen state.
   mkStatus =
     pkgs:
-    let
-      # Both CloudRedirect hooks are store paths known at Nix build time.
-      # Resolve the ~/.local/share link against them to report which one is
-      # actually wired up (the home link mirrors the LD_PRELOAD choice).
-      # Upstream is a `type = "file"` input (the .so itself); moon is a git
-      # input with the .so at the repo root.
-      CR_UP = cloudredirect;
-      CR_MOON = "${cloudredirect-moon}/cloud_redirect.so";
-    in
     pkgs.writeShellScriptBin "nix-crab-status" ''
       set -u
 
@@ -35,10 +23,7 @@ rec {
       NETSOOK="$HOME/.config/SLSsteam/tools/netsock/netsock.so"
       STEAMCFG="$HOME/.steam/steam/steam.cfg"
       LUMEN_DIR="$HOME/.local/share/Lumen"
-      CRLINK="$HOME/.local/share/CloudRedirect/cloud_redirect.so"
 
-      CR_UP="${CR_UP}"
-      CR_MOON="${CR_MOON}"
       # flat key block to config.yaml. So always read the last occurrence.
       val() { grep "^$1:" "$CFG" | tail -1 | awk '{print $2}'; }
 
@@ -65,12 +50,14 @@ rec {
       DISABLECLOUD=""
       PLAYNOTOWNED=""
       SAFEMODE=""
+      MANIFESTPINS=0
       DUPES=0
       if [ "$CONFIG_PRESENT" = 1 ]; then
         DISABLECLOUD="$(val DisableCloud)"
         PLAYNOTOWNED="$(val PlayNotOwnedGames)"
         SAFEMODE="$(val SafeMode)"
         DUPES=$(grep -c '^DisableCloud:' "$CFG")
+        grep -q '^ManifestPins:' "$CFG" && MANIFESTPINS=1
       fi
       NETSOOK_PRESENT=0
       [ -f "$NETSOOK" ] && NETSOOK_PRESENT=1
@@ -110,24 +97,31 @@ rec {
       LUAAPPIDS=0
       [ -f "$HOME/.config/SLSsteam/luaappids.yaml" ] && LUAAPPIDS=1
 
-      # -- CloudRedirect -------------------------------------------------------
-      CR_ENABLED=0
-      case "$DISABLECLOUD" in
-        no | false) CR_ENABLED=1 ;;
-      esac
-      CR_HOOK="missing"
-      if [ -e "$CRLINK" ]; then
-        CR_TARGET="$(readlink -f "$CRLINK" 2>/dev/null || true)"
-        case "$CR_TARGET" in
-          "$CR_MOON") CR_HOOK="moon (LuaTools)" ;;
-          "$CR_UP")   CR_HOOK="upstream" ;;
-          *)          CR_HOOK="other: $CR_TARGET" ;;
-        esac
+      # -- steam-config-nix ----------------------------------------------------
+      # Its patcher runs as a user service (Home Manager flavour) or as a
+      # per-user system unit (NixOS flavour); configured apps live under
+      # <dataHome>/steam-config-nix/apps as wrapper links.
+      SCN_SERVICE="not installed"
+      SCN_UNIT_FILE="$HOME/.config/systemd/user/steam-config-patcher.service"
+      SCN_TEMPLATE=0
+      if command -v systemctl >/dev/null 2>&1; then
+        if [ -e "$SCN_UNIT_FILE" ]; then
+          SCN_SERVICE="inactive"
+          systemctl --user is-active --quiet steam-config-patcher.service 2>/dev/null \
+            && SCN_SERVICE="active"
+        elif systemctl list-unit-files --no-legend 'steam-config-patcher@*.service' 2>/dev/null | grep -q .; then
+          SCN_TEMPLATE=1
+          SCN_SERVICE="inactive"
+          systemctl is-active --quiet "steam-config-patcher@$(id -un).service" 2>/dev/null \
+            && SCN_SERVICE="active"
+        fi
       fi
-      CR_CLI=0
-      [ -x "$HOME/.local/share/CloudRedirect/cloud_redirect_lib" ] && CR_CLI=1
-      CR_FLATPAK=0
-      [ -d "$HOME/.local/share/flatpak/app/org.cloudredirect.CloudRedirect" ] && CR_FLATPAK=1
+      SCN_APPS=0
+      for root in "$HOME/.local/share/steam-config-nix/apps" /var/lib/steam-config-nix/apps; do
+        [ -d "$root" ] || continue
+        SCN_APPS=$(find "$root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        break
+      done
 
       # -- LuaTools / Lumen ----------------------------------------------------
       L_INSTALLED=0
@@ -147,13 +141,13 @@ rec {
         printf '{'
         printf '"steam":{"version":%s,"manifest_note":%s,"updates_blocked":%s},' \
           "$(json_str "$STEAM_VERSION")" "$(json_str "$STEAM_NOTE")" "$(json_bool "$UPDATES_BLOCKED")"
-        printf '"slssteam":{"config_present":%s,"disable_cloud":%s,"play_not_owned":%s,"safe_mode":%s,"disable_cloud_duplicates":%s,"netsock_present":%s},' \
-          "$(json_bool "$CONFIG_PRESENT")" "$(json_str "$DISABLECLOUD")" "$(json_str "$PLAYNOTOWNED")" "$(json_str "$SAFEMODE")" "$DUPES" "$(json_bool "$NETSOOK_PRESENT")"
+        printf '"slssteam":{"config_present":%s,"disable_cloud":%s,"play_not_owned":%s,"safe_mode":%s,"disable_cloud_duplicates":%s,"manifest_pins":%s,"netsock_present":%s},' \
+          "$(json_bool "$CONFIG_PRESENT")" "$(json_str "$DISABLECLOUD")" "$(json_str "$PLAYNOTOWNED")" "$(json_str "$SAFEMODE")" "$DUPES" "$(json_bool "$MANIFESTPINS")" "$(json_bool "$NETSOOK_PRESENT")"
         printf '"injection":%s,' "$(json_str "$INJECTION")"
         printf '"games":{"stplug_in_dir":%s,"lua_manifests":%s,"luaappids_yaml":%s},' \
           "$(json_str "$STPLUG")" "$LUA_COUNT" "$(json_bool "$LUAAPPIDS")"
-        printf '"cloudredirect":{"enabled":%s,"hook":%s,"cli_present":%s,"flatpak_installed":%s},' \
-          "$(json_bool "$CR_ENABLED")" "$(json_str "$CR_HOOK")" "$(json_bool "$CR_CLI")" "$(json_bool "$CR_FLATPAK")"
+        printf '"steam_config":{"service":%s,"template_unit":%s,"configured_apps":%s},' \
+          "$(json_str "$SCN_SERVICE")" "$(json_bool "$SCN_TEMPLATE")" "$SCN_APPS"
         printf '"luatools":{"installed":%s,"plugin_installed":%s,"running":%s,"cef_port":%s}' \
           "$(json_bool "$L_INSTALLED")" "$(json_bool "$L_PLUGIN")" "$(json_bool "$L_RUNNING")" "$(json_bool "$L_CEFPORT")"
         printf '}\n'
@@ -173,6 +167,7 @@ rec {
         echo "DisableCloud:   $DISABLECLOUD"
         echo "PlayNotOwned:   $PLAYNOTOWNED"
         echo "SafeMode:       $SAFEMODE"
+        echo "ManifestPins:   $([ "$MANIFESTPINS" = 1 ] && echo present || echo none)"
         [ "$DUPES" -gt 1 ] && echo "Warning:        DisableCloud set $DUPES times - only the last counts"
       else
         echo "Config missing: $CFG"
@@ -197,17 +192,9 @@ rec {
       fi
 
       echo
-      echo "=== CloudRedirect ==="
-      # Both spellings: SLSsteam and SteaMidra write YAML 1.2 true/false, a
-      # hand-edited or headcrab-era config carries YAML 1.1 yes/no.
-      if [ "$CR_ENABLED" = 1 ]; then
-        echo "Status: Enabled (DisableCloud: $DISABLECLOUD)"
-      else
-        echo "Status: Disabled"
-      fi
-      echo "Hook:           $CR_HOOK"
-      echo "CLI:            $([ "$CR_CLI" = 1 ] && echo present || echo missing)"
-      echo "Flatpak:        $([ "$CR_FLATPAK" = 1 ] && echo installed || echo not installed)"
+      echo "=== steam-config-nix ==="
+      echo "Patcher:        $SCN_SERVICE"
+      echo "Configured apps: $SCN_APPS"
 
       echo
       echo "=== LuaTools / Lumen ==="
@@ -277,11 +264,6 @@ rec {
       ...
     }:
     {
-      options.programs.nix-crab.tools.enable = lib.mkEnableOption ''
-        this flake's commands on PATH: nix-crab-status (diagnostics, --json)
-        and nix-crab-update (flake update + rebuild + status).
-      '';
-
       config = lib.mkIf config.programs.nix-crab.tools.enable {
         home.packages = [
           (mkStatus pkgs)

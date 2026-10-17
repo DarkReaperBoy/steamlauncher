@@ -76,8 +76,6 @@ rec {
       };
     in
     {
-      options.programs.nix-crab.steamidra.enable = lib.mkEnableOption "SteaMidra (SFF) game downloader";
-
       config = lib.mkIf config.programs.nix-crab.steamidra.enable {
         home.packages = [
           pkgs.dotnetCorePackages.runtime_9_0

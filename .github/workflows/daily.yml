@@ -1,0 +1,67 @@
+name: daily upstream sync
+
+# The "heavenly cycle", once a day:
+#   1. ci/update-binaries.sh picks up every new upstream release binary
+#      (verifying each against the sha256 that project publishes);
+#   2. `nix flake update` moves the git inputs;
+#   3. `nix flake check` + a build of every swapped-in binary prove the result
+#      still evaluates and still fetches;
+#   4. a PR is opened with whatever changed, and the normal `flake check`
+#      workflow validates that PR again before it merges.
+#
+# There is deliberately no binary cache of our own: everything that can be
+# prebuilt is already somebody else's release asset, so a rebuild is a download.
+on:
+  workflow_dispatch:
+  schedule:
+    # daily, 04:17 UTC
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v16
+
+      - name: Pick up new upstream release binaries
+        run: ./ci/update-binaries.sh | tee update-binaries.log
+
+      - name: Update flake.lock
+        run: nix flake update
+
+      - name: Verify (evaluate everything, fetch + unpack every binary)
+        run: |
+          nix flake check
+          nix build -L \
+            .#millennium .#slsteam-moon .#lumen .#luatools \
+            .#netsock .#accela .#steam-config-patcher \
+            .#nix-crab-status .#nix-crab-downgrade
+
+      - name: Open a PR if anything moved
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: |
+            upstream.lock.json
+            flake.lock
+          commit-message: "upstream: daily refresh"
+          title: "upstream: daily refresh"
+          branch: chore/daily-upstream
+          delete-branch: true
+          body: |
+            Automated daily sync.
+
+            - `upstream.lock.json` — release binaries of Millennium, slsteam-moon,
+              Lumen and LuaTools, each verified against the sha256 published next
+              to the asset (see `ci/update-binaries.sh`).
+            - `flake.lock` — git inputs (`nix flake update`).
+
+            This workflow already ran `nix flake check` and built every package
+            that changed, and `flake check` runs again on this PR.

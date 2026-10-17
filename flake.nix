@@ -1,5 +1,5 @@
 {
-  description = "Steam tools for NixOS as packages + opt-in modules: SLSsteam, CloudRedirect, Millennium, LuaTools, ACCELA, SteaMidra (updated continuation of nix-crab)";
+  description = "Declarative Steam tooling for NixOS: SLSsteam injection, Millennium, LuaTools, steam-config-nix, ACCELA, SteaMidra (nix-crab, updated continuation)";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -13,46 +13,12 @@
     };
 
     # slsteam-moon: SLSsteam fork with a native Lua manifest importer (the
-    # maintained path for the LuaTools workflow). No flake, so it is built from
-    # source in modules/slssteam.nix instead of imported as a package set. Its
-    # res/config.yaml is the merge base when slssteam-moon is enabled.
-    slsteam-moon = {
-      url = "github:swwayps/slsteam-moon";
-      flake = false;
-    };
+    # maintained path for the LuaTools workflow). Its GitHub release ships the
+    # injected objects, so it is fetched, not built — see
+    # modules/upstream-binaries.nix and upstream.lock.json.
 
     # Lumen (static Lua backend) + the LuaTools plugin port, both from the
-    # slsteam-moon maintainer. Pinned by git rev, not versionless release URLs
-    # (those change content every release and break the lock's narHash).
-    lumen = {
-      url = "github:swwayps/lumen";
-      flake = false;
-    };
-    luatools-moon = {
-      url = "github:swwayps/luatools-moon";
-      flake = false;
-    };
-
-    # Upstream CloudRedirect hook — the default. `releases/latest/download`
-    # means `nix flake update` always picks the newest release (currently
-    # v2.6.6). Reads the game list from config.yaml's AdditionalApps.
-    cloudredirect = {
-      type = "file";
-      url = "https://github.com/Selectively11/CloudRedirect/releases/latest/download/cloud_redirect.so";
-      flake = false;
-    };
-    # Optional hook for the LuaTools stack, opt-in via
-    # programs.nix-crab.cloudredirect.moon. Additionally scans stplug-in +
-    # luaappids.yaml; the .so is committed at the repo root.
-    cloudredirect-moon = {
-      url = "github:swwayps/cloudredirect-moon";
-      flake = false;
-    };
-    cloudredirect-cli = {
-      type = "file";
-      url = "https://github.com/Selectively11/h3adcr-b/releases/download/linux-test/cloud_redirect_cli";
-      flake = false;
-    };
+    # slsteam-moon maintainer. Also release binaries, same mechanism.
 
     # netsock (steamnetsock-patch) — per-game LD_AUDIT multiplayer fix.
     # `releases/latest/download` tracks upstream automatically.
@@ -75,7 +41,24 @@
     millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     millennium.inputs.nixpkgs.follows = "nixpkgs";
 
-    nix-flatpak.url = "github:gmodena/nix-flatpak";
+    # Home Manager — an implementation detail, not something the user manages.
+    # The NixOS module imports it and drives home-manager.users.<user> from
+    # plain programs.nix-crab.* options, so everything applies in one
+    # `nixos-rebuild switch`.
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # steam-config-nix — declarative Steam configuration (launch options,
+    # compat tools, game files, non-Steam apps, ...). Its modules are
+    # re-exported by nixosModules.default / homeModules.default below, so the
+    # whole surface is `programs.steam.config.*`, gated on its own
+    # `programs.steam.config.enable` (default off, like everything else here).
+    steam-config-nix = {
+      url = "github:different-name/steam-config-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     # ACCELA (Enter The Wired bundle) — AppImage packaged as a proper
     # appimageTools FHS wrapper with the Qt deps ACCELA needs.
@@ -90,16 +73,11 @@
       self,
       nixpkgs,
       sls-steam,
-      slsteam-moon,
-      lumen,
-      luatools-moon,
-      cloudredirect,
-      cloudredirect-moon,
-      cloudredirect-cli,
       steamnetsock,
       steamidra,
       millennium,
-      nix-flatpak,
+      home-manager,
+      steam-config-nix,
       enter-the-wired,
     }:
     let
@@ -107,39 +85,50 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
       # Feature units: each modules/<feature>.nix returns
-      # `{ module, mk* }` — instantiate ONCE here, then take `.module` for the
-      # module outputs and `.mk*` for packages.*. One definition per
-      # derivation, so a package and the option that installs it are always
-      # bit-identical. (Files that own no derivations — settings.nix,
-      # millennium*.nix — are plain modules, imported where used.)
-      slssteamUnit = import ./modules/slssteam.nix { inherit sls-steam slsteam-moon; };
-      cloudredirectUnit = import ./modules/cloudredirect.nix {
-        inherit
-          cloudredirect
-          cloudredirect-moon
-          cloudredirect-cli
-          ;
+      # `{ inputs }: { module, mk* }` — instantiate ONCE here, then take
+      # `.module` for the module outputs and `.mk*` for packages.*. One
+      # definition per derivation, so a package and the option that installs it
+      # are always bit-identical. (Files that own no derivations —
+      # settings.nix, millennium*.nix — are plain modules, imported where
+      # used.)
+      slssteamUnit = import ./modules/slssteam.nix {
+        inherit sls-steam;
+        inherit (upstreamBinaries) mkSlsteamMoon;
       };
       downgradeUnit = import ./modules/downgrade.nix { };
       accelaUnit = import ./modules/accela.nix { inherit enter-the-wired; };
       steamidraUnit = import ./modules/steamidra.nix { inherit steamidra; };
-      luatoolsUnit = import ./modules/luatools-moon.nix { inherit lumen luatools-moon; };
-      toolsUnit = import ./modules/tools.nix { inherit cloudredirect cloudredirect-moon; };
+      luatoolsUnit = import ./modules/luatools-moon.nix {
+        inherit (upstreamBinaries) mkLumen mkLuatools;
+      };
+      toolsUnit = import ./modules/tools.nix { };
       homeUnit = import ./modules/home.nix {
-        inherit
-          nix-flatpak
-          steamnetsock
-          cloudredirect
-          cloudredirect-moon
-          cloudredirect-cli
-          sls-steam
-          slsteam-moon
-          ;
+        inherit steamnetsock sls-steam;
+        inherit (upstreamBinaries) mkSlsteamMoon;
       };
 
-      # No package output is unfree — the old SLSsteam steam-wrapper was the
-      # only unfree one and is gone (injection happens via the module option
-      # on the consumer's own pkgs, where steam's unfree license is handled).
+      # Upstream release binaries (Millennium, slsteam-moon, Lumen, LuaTools):
+      # fetched from each project's own GitHub Releases, versioned by
+      # upstream.lock.json — a generated file, refreshed daily by
+      # ci/update-binaries.sh. Nothing here is compiled.
+      upstreamBinaries = import ./modules/upstream-binaries.nix { };
+
+      # The home-side config modules, in one place: homeModules.default imports
+      # them for standalone Home Manager, nixosModules.default forwards them
+      # into home-manager.users.<user>. Options are declared once, in
+      # home-options.nix, and imported on both sides separately.
+      homeConfigModules = [
+        homeUnit.module
+        ./modules/millennium-addons.nix
+        toolsUnit.module
+        luatoolsUnit.module
+        steamidraUnit.module
+        accelaUnit.module
+      ];
+
+      # No package output is unfree — SLSsteam is AGPL-3.0 and injection happens
+      # through the module option on the consumer's own pkgs, where Steam's
+      # unfree license is handled.
       pkgsFor = system: import nixpkgs { inherit system; };
     in
     {
@@ -158,16 +147,15 @@
           # software
           accela = accelaUnit.mkAccela pkgs; # ACCELA depot downloader (clean-Qt launcher)
           sls-steam = slssteamUnit.mkSlsSteam pkgs; # SLSsteam.so + library-inject.so (upstream)
-          slsteam-moon = slssteamUnit.mkSlsteamMoon pkgs; # the LuaTools fork, built from source
-          cloudredirect = cloudredirectUnit.mkCloudredirect pkgs; # upstream cloud_redirect.so
-          cloudredirect-moon = cloudredirectUnit.mkCloudredirectMoon pkgs; # LuaTools hook
-          cloudredirect-cli = cloudredirectUnit.mkCloudredirectCli pkgs; # cloud_redirect_cli
+          slsteam-moon = upstreamBinaries.mkSlsteamMoon pkgs; # the LuaTools fork (its own release)
           netsock = homeUnit.mkNetsock pkgs; # multiplayer-fix .so (per-game LD_AUDIT)
           steamidra = steamidraUnit.mkSteamidra pkgs; # SteaMidra (SFF) launcher
-          lumen = luatoolsUnit.mkLumen pkgs; # LuaTools backend dist
-          luatools = luatoolsUnit.mkLuatools pkgs; # LuaTools plugin dist
+          lumen = upstreamBinaries.mkLumen pkgs; # LuaTools backend dist
+          luatools = upstreamBinaries.mkLuatools pkgs; # LuaTools plugin dist
+          millennium = upstreamBinaries.mkMillennium pkgs; # Millennium hook (its own release)
           ticket-grabber = slssteamUnit.mkTicketGrabber pkgs; # SLSsteam tool
           schema-grabber = slssteamUnit.mkSchemaGrabber pkgs; # SLSsteam tool
+          steam-config-patcher = steam-config-nix.packages.${system}.steam-config-patcher; # steam-config-nix's patcher
 
           # this flake's own commands
           nix-crab-status = toolsUnit.mkStatus pkgs; # diagnostics, --json for machines
@@ -180,12 +168,22 @@
 
       # ------------------------------------------------------------------
       # Modules: opt-in, everything defaults to off. Import the module, then
-      # flip programs.nix-crab.*.enable for the software you want.
+      # flip programs.nix-crab.*.enable for the software you want. The
+      # steam-config-nix modules are re-exported here (their own gate is
+      # programs.steam.config.enable, also off by default) so one import gets
+      # the whole surface.
       # ------------------------------------------------------------------
       nixosModules.default = {
         imports = [
-          (import ./modules/millennium.nix { inherit millennium; })
-          cloudredirectUnit.module
+          steam-config-nix.nixosModules.default
+          home-manager.nixosModules.home-manager
+          ./modules/home-options.nix
+          ./modules/netsock-bridge.nix
+          (import ./modules/nixos-home.nix { inherit homeConfigModules; })
+          (import ./modules/millennium.nix {
+            inherit millennium;
+            inherit (upstreamBinaries) mkMillennium;
+          })
           slssteamUnit.module
           downgradeUnit.module
         ];
@@ -193,13 +191,12 @@
 
       homeModules.default = {
         imports = [
-          homeUnit.module
-          ./modules/millennium-addons.nix
-          toolsUnit.module
-          luatoolsUnit.module
-          steamidraUnit.module
-          accelaUnit.module
-        ];
+          steam-config-nix.homeModules.default
+          ./modules/home-options.nix
+          ./modules/steam-config.nix
+          ./modules/netsock-bridge.nix
+        ]
+        ++ homeConfigModules;
       };
 
       # `nix fmt`

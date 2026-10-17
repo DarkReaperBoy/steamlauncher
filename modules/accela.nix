@@ -69,43 +69,6 @@ rec {
       cfg = config.programs.nix-crab;
     in
     {
-      options.programs.nix-crab.accela = {
-        enable = lib.mkEnableOption "ACCELA (Steam depot downloader, Enter The Wired)";
-
-        config = {
-          auto_skip_single_choice = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Skip dialogs that only offer one choice.";
-          };
-          library_mode = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Work against the Steam library instead of managing games itself.";
-          };
-          max_downloads = lib.mkOption {
-            type = lib.types.ints.unsigned;
-            default = 16;
-            description = "Parallel depot downloads.";
-          };
-          sls_config_management = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Hand config management to SLSsteam.";
-          };
-          slssteam_mode = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Hand games to SLSsteam instead of installing them standalone.";
-          };
-          use_steamless = lib.mkOption {
-            type = lib.types.bool;
-            default = true;
-            description = "Steamless (no-Steam) mode.";
-          };
-        };
-      };
-
       config = lib.mkIf cfg.accela.enable {
         home.packages = [ launcher ];
 

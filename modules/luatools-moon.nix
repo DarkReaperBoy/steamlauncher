@@ -1,32 +1,10 @@
 # LuaTools feature (slsteam-moon's Lumen backend + plugin). Unit shape:
 # flake.nix takes `.module` (home module) and `.mkLumen`/`.mkLuatools`
-# (packages.lumen / packages.luatools) — same dists both places.
-{ lumen, luatools-moon }:
+# (packages.lumen / packages.luatools) — same dists both places. Both dists
+# are upstream's own release zips (modules/upstream-binaries.nix), so this file
+# is only the home-side wiring.
+{ mkLumen, mkLuatools }:
 rec {
-  # Build the two dists into store paths. The activation in `module` copies
-  # them into real directories because Lumen and the plugin write at runtime
-  # (config, fetched manifest packs, plugin state).
-  mkLumen =
-    pkgs:
-    pkgs.runCommand "lumen-dist" { } ''
-      mkdir -p "$out"
-      ${pkgs.unzip}/bin/unzip -qo ${lumen}/dist/lumen-linux.zip -d "$out"
-      chmod +x "$out/lumen"
-    '';
-
-  # The plugin ships no committed dist zip, only the canonical plugin/ source
-  # tree; package it deterministically the way upstream's scripts/build.sh does.
-  mkLuatools =
-    pkgs:
-    pkgs.runCommand "luatools-moon-dist" { } ''
-      mkdir -p "$out"
-      cp -r ${luatools-moon}/plugin/. "$out/"
-      rm -rf "$out/backend/data" "$out/backend/temp_dl"
-      rm -f "$out/backend/lua_runtime.log" "$out/backend/loadedappids.txt" "$out/backend/appidlogs.txt"
-      chmod +x "$out/backend/scripts/"*.sh
-      chmod +x "$out/backend/bin/7zz"
-    '';
-
   module =
     {
       config,
@@ -45,21 +23,6 @@ rec {
       luatoolsDist = mkLuatools pkgs;
     in
     {
-      options.programs.nix-crab.luatools.enable = lib.mkEnableOption ''
-        the LuaTools stack for slsteam-moon: Lumen (backend) and the LuaTools
-        plugin, placed under ~/.local/share/Lumen. Requires
-        programs.nix-crab.slssteam-moon.enable on the NixOS side (that also brings
-        steam-run, which the `lumen` wrapper needs).
-      '';
-
-      options.programs.nix-crab.luatools.lumenService = lib.mkEnableOption ''
-        a systemd user service for Lumen instead of the steam-wrapper sidecar.
-        With this enabled Lumen starts at login (unit nix-crab-lumen,
-        Restart=on-failure) and the `steam` command is no longer shadowed, so
-        Steam launches plain -- Lumen attaches on its own once the CEF port
-        appears. Default keeps the wrapper behaviour.
-      '';
-
       config = lib.mkIf cfg.enable {
         assertions = [
           {
