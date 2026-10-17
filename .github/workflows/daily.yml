@@ -32,7 +32,9 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v16
 
       - name: Pick up new upstream release binaries
-        run: ./ci/update-binaries.sh | tee update-binaries.log
+        # tee outside the worktree: anything the action might otherwise see as a
+        # change would end up in the PR diff.
+        run: ./ci/update-binaries.sh | tee "$RUNNER_TEMP/update-binaries.log"
 
       - name: Update flake.lock
         run: nix flake update
@@ -46,6 +48,8 @@ jobs:
             .#nix-crab-status .#nix-crab-downgrade
 
       - name: Open a PR if anything moved
+        id: create-pr
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v6
         with:
           add-paths: |
@@ -65,3 +69,20 @@ jobs:
 
             This workflow already ran `nix flake check` and built every package
             that changed, and `flake check` runs again on this PR.
+
+      # The repo setting "Allow GitHub Actions to create or approve pull requests"
+      # may be off; when it is, the branch still gets pushed above, so the sync
+      # is never lost — this only turns a red daily run into a clear instruction.
+      - name: Explain when the PR could not be opened
+        if: steps.create-pr.outcome == 'failure'
+        run: |
+          echo "::warning::PR not created — the changes are on branch chore/daily-upstream."
+          {
+            echo "## Changes pushed, PR not opened"
+            echo
+            echo "GitHub Actions may not create pull requests in this repository."
+            echo "Enable **Settings ▸ Actions ▸ General ▸ Allow GitHub Actions to create"
+            echo "and approve pull requests** for a fully automatic cycle, or open it now:"
+            echo
+            echo "https://github.com/${GITHUB_REPOSITORY}/compare/main...chore/daily-upstream"
+          } >> "$GITHUB_STEP_SUMMARY"
