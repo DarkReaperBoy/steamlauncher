@@ -263,9 +263,16 @@ rec {
       pkgs,
       ...
     }:
+    let
+      target = import ./target.nix { inherit config lib; };
+    in
     {
-      config = lib.mkIf config.programs.nix-crab.tools.enable {
-        home.packages = [
+      # HM-free: system-wide, like every NixOS program module does it. Writing
+      # users.users.<user>.packages instead would recurse: the package gate
+      # resolves the user, and resolution reads users.users (home-manager#594
+      # documents the same trap).
+      config = lib.mkIf (config.programs.nix-crab.tools.enable && target.user != null) {
+        environment.systemPackages = [
           (mkStatus pkgs)
           (mkUpdate pkgs)
         ];

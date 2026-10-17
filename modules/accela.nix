@@ -67,31 +67,46 @@ rec {
       '';
 
       cfg = config.programs.nix-crab;
+      inherit (import ./target.nix { inherit config lib; }) user home;
     in
     {
-      config = lib.mkIf cfg.accela.enable {
-        home.packages = [ launcher ];
-
-        home.file.".local/share/icons/hicolor/256x256/apps/accela.png".source =
-          "${accelaPkg pkgs}/share/pixmaps/accela.png";
+      config = lib.mkIf (cfg.accela.enable && user != null) {
+        environment.systemPackages = [ launcher ];
 
         # Not xdg.desktopEntries: XDG_DATA_HOME is searched before the profile, so
         # the entry ACCELAINSTALL writes would shadow ours. Same as steamidra.
-        home.file.".local/share/applications/accela.desktop" = {
-          source = "${desktopItem}/share/applications/accela.desktop";
-          force = true;
-        };
+        # Symlinked on every activation (force semantics), HM-free.
+        system.activationScripts."nix-crab-accela" =
+          import ./activate.nix
+            {
+              inherit
+                lib
+                pkgs
+                user
+                home
+                ;
+            }
+            "accela"
+            ''
+              dataDir="$HOME/.local/share"
+              mkdir -p "$dataDir/icons/hicolor/256x256/apps" "$dataDir/applications"
+              ln -sfnT "${accelaPkg pkgs}/share/pixmaps/accela.png" \
+                "$dataDir/icons/hicolor/256x256/apps/accela.png"
+              ln -sfnT "${desktopItem}/share/applications/accela.desktop" \
+                "$dataDir/applications/accela.desktop"
+              own "$dataDir"
 
-        # Seeded, not managed: QSettings rewrites this file, so a store symlink
-        # breaks it. Same reason slssteam.manageConfig defaults to false.
-        # Seeds only when absent; upstream awk-merges into an existing section.
-        home.activation.accelaSeedConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-          accelaConf="${config.xdg.configHome}/Tachibana Labs/ACCELA.conf"
-          if [ ! -e "$accelaConf" ]; then
-            run mkdir -p "$(dirname "$accelaConf")"
-            run install -m 644 ${seedConf} "$accelaConf"
-          fi
-        '';
+              # Seeded, not managed: QSettings rewrites this file, so a store symlink
+              # breaks it. Same reason slssteam.manageConfig defaults to false.
+              # Seeds only when absent; upstream awk-merges into an existing section.
+              accelaConf="$HOME/.config/Tachibana Labs/ACCELA.conf"
+              if [ ! -e "$accelaConf" ]; then
+                mkdir -p "$(dirname "$accelaConf")"
+                install -m 644 ${seedConf} "$accelaConf"
+                own "$(dirname "$accelaConf")"
+                echo "nix-crab: seeded ACCELA.conf"
+              fi
+            '';
       };
     };
 }

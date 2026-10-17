@@ -1,7 +1,12 @@
-# Home-side hub: SLSsteam config management + netsock.
+# User-scoped hub: SLSsteam config management + netsock.
 # Unit shape: flake.nix takes `.module` (this file owns its options) and
-# `.mkNetsock` (packages.netsock). Builders live here; flake.nix stays the only
-# place that wires units into outputs, so package/option bits stay identical.
+# `.mkNetsock` (packages.netsock). Builders live here; flake.nix stays the
+# only place that wires units into outputs, so package/option bits stay
+# identical.
+#
+# HM-free: the managed config.yaml and the netsock.so link are written by
+# activation snippets (modules/activate.nix) that run on every
+# `nixos-rebuild switch` as the resolved user — no home-manager involved.
 {
   steamnetsock,
   mkSlsSteam,
@@ -9,7 +14,7 @@
 }:
 {
   # netsock as a buildable single-file package (nix build .#netsock). The
-  # home.file link below uses the raw input directly — same content, and the
+  # activation link below uses the raw input directly — same content, and the
   # launch-option snippet in the README points at the link path anyway.
   mkNetsock = pkgs: pkgs.runCommand "netsock.so" { } "cp ${steamnetsock} $out";
 
@@ -22,6 +27,7 @@
     }:
     let
       cfg = config.programs.nix-crab;
+      target = import ./target.nix { inherit config lib; };
 
       settingsFormat = pkgs.formats.yaml { };
 
@@ -133,6 +139,10 @@
       preserveExpr = "with_entries(select((${
         lib.concatStringsSep " or " (map (k: ".key == \"${k}\"") preserveKeys)
       }) and .value != null))";
+
+      targetFile = "${target.home}/.config/SLSsteam/config.yaml";
+      netsockLink = "${target.home}/.config/SLSsteam/tools/netsock/netsock.so";
+      userScoped = target.user != null;
     in
     {
       config = {
@@ -159,87 +169,100 @@
         # Written only when explicitly managed; otherwise the path is untouched
         # (SLSsteam creates its own default on first run, external tools edit it).
         #
-        # Deliberately NOT xdg.configFile: that would be a symlink into the
-        # store, which SLSsteam's file watcher and the LuaTools plugin cannot
-        # write through (the plugin stages a temp file and renames it over this
-        # path, which would silently break out of the symlink and then collide
-        # with the next activation). The activation below writes a real file
-        # instead, carrying the runtime-owned keys over.
-        #
-        # entryBetween, not entryAfter: activation entries are topologically
-        # sorted with ties broken by attribute name, and anything named after
-        # "reloadSystemd" would end up last — a failed systemd step would then
-        # skip the config write entirely. Pin it between writeBoundary (so it
-        # never fights the link generation) and reloadSystemd.
-        home.activation.slssteamConfig = lib.mkIf cfg.slssteam.manageConfig (
-          lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "writeBoundary" ] ''
-            target="${config.xdg.configHome}/SLSsteam/config.yaml"
-            src="${managedConfig}"
-            # Temp lives next to the target so the final mv is a rename inside
-            # one directory: it replaces a legacy store symlink instead of
-            # writing through it.
-            candidate="$target.tmp.nix-crab"
-
-            run mkdir -p "$(dirname "$target")"
-            # install, not cp: store files are 444, and the whole point is that
-            # SLSsteam and the LuaTools plugin can still write this file.
-            install -m 644 "$src" "$candidate"
-            ${
-              if preserveKeys == [ ] then
-                "true"
-              else
+        # A real file, not a store symlink: SLSsteam's file watcher and the
+        # LuaTools plugin cannot write through a symlink (the plugin stages a
+        # temp file and renames it over this path, which would silently break
+        # out of the symlink and then collide with the next activation).
+        system.activationScripts."nix-crab-slssteam-config" =
+          lib.mkIf (cfg.slssteam.manageConfig && userScoped)
+            (
+              import ./activate.nix
+                {
+                  inherit lib pkgs;
+                  user = target.user;
+                  home = target.home;
+                }
+                "slssteam-config"
                 ''
-                  # Re-apply the keys something else owns at runtime (the
-                  # LuaTools plugin edits them between switches), unless the
-                  # user declared them — a declared key is the user's, and Nix
-                  # resetting it is the point.
-                  if [ -f "$target" ]; then
-                    runtime_overlay="$target.tmp.nix-crab.runtime"
-                    # The comments are stripped and the emptiness checked with
-                    # yq itself: with_entries keeps the source file's comments
-                    # (merging them duplicates every comment block), and an
-                    # "empty" overlay is only empty as a value — piping it into
-                    # the merge below degrades nulls to empty strings and flips
-                    # the document to flow style.
-                    {
-                      ${pkgs.yq-go}/bin/yq eval \
-                        ${lib.escapeShellArg preserveExpr} "$target" 2>/dev/null \
-                        || true
-                    } | ${pkgs.gnugrep}/bin/grep -v '^#' > "$runtime_overlay" || true
+                  target="${targetFile}"
+                  src="${managedConfig}"
+                  # Temp lives next to the target so the final mv is a rename inside
+                  # one directory: it replaces a legacy store symlink instead of
+                  # writing through it.
+                  candidate="$target.tmp.nix-crab"
 
-                    if [ "$(${pkgs.yq-go}/bin/yq eval 'length' "$runtime_overlay" 2>/dev/null || echo 0)" != "0" ]; then
-                      if ${pkgs.yq-go}/bin/yq eval-all \
-                        'select(fileIndex == 0) * select(fileIndex == 1)' \
-                        "$src" "$runtime_overlay" > "$candidate" 2>/dev/null; then
-                        :
-                      else
-                        install -m 644 "$src" "$candidate"
-                      fi
-                    fi
-                    rm -f "$runtime_overlay"
+                  mkdir -p "$(dirname "$target")"
+                  # install, not cp: store files are 444, and the whole point is that
+                  # SLSsteam and the LuaTools plugin can still write this file.
+                  install -m 644 "$src" "$candidate"
+                  ${
+                    if preserveKeys == [ ] then
+                      "true"
+                    else
+                      ''
+                        # Re-apply the keys something else owns at runtime (the
+                        # LuaTools plugin edits them between switches), unless the
+                        # user declared them — a declared key is the user's, and Nix
+                        # resetting it is the point.
+                        if [ -f "$target" ]; then
+                          runtime_overlay="$target.tmp.nix-crab.runtime"
+                          # The comments are stripped and the emptiness checked with
+                          # yq itself: with_entries keeps the source file's comments
+                          # (merging them duplicates every comment block), and an
+                          # "empty" overlay is only empty as a value — piping it into
+                          # the merge below degrades nulls to empty strings and flips
+                          # the document to flow style.
+                          {
+                            yq eval \
+                              ${lib.escapeShellArg preserveExpr} "$target" 2>/dev/null \
+                              || true
+                          } | grep -v '^#' > "$runtime_overlay" || true
+
+                          if [ "$(yq eval 'length' "$runtime_overlay" 2>/dev/null || echo 0)" != "0" ]; then
+                            if yq eval-all \
+                              'select(fileIndex == 0) * select(fileIndex == 1)' \
+                              "$src" "$runtime_overlay" > "$candidate" 2>/dev/null; then
+                              :
+                            else
+                              install -m 644 "$src" "$candidate"
+                            fi
+                          fi
+                          rm -f "$runtime_overlay"
+                        fi
+                      ''
+                  }
+
+                  # Same content as the live file -> leave it alone (SLSsteam watches
+                  # this file; rewriting it unchanged would look like a change).
+                  if [ -f "$target" ] && cmp -s "$candidate" "$target"; then
+                    rm -f "$candidate"
+                    echo "nix-crab: SLSsteam config.yaml is up to date"
+                  else
+                    mv -f "$candidate" "$target"
+                    own "$target"
+                    echo "nix-crab: installed SLSsteam config.yaml to $target"
                   fi
                 ''
+            );
+
+        # netsock: per-game multiplayer fix, only where it is asked for.
+        system.activationScripts."nix-crab-netsock" = lib.mkIf (cfg.netsock.enable && userScoped) (
+          import ./activate.nix
+            {
+              inherit lib pkgs;
+              user = target.user;
+              home = target.home;
             }
-
-            # Same content as the live file -> leave it alone (SLSsteam watches
-            # this file; rewriting it unchanged would look like a change).
-            if [ -f "$target" ] && cmp -s "$candidate" "$target"; then
-              rm -f "$candidate"
-              echo "nix-crab: SLSsteam config.yaml is up to date"
-            else
-              run mv -f "$candidate" "$target"
-              echo "nix-crab: installed SLSsteam config.yaml to $target"
-            fi
-          ''
+            "netsock"
+            ''
+              link="${netsockLink}"
+              mkdir -p "$(dirname "$link")"
+              # -T: a store dir would otherwise nest under a stale symlink.
+              ln -sfnT "${steamnetsock}" "$link"
+              own "$(dirname "$link")"
+              echo "nix-crab: linked netsock.so to $link"
+            ''
         );
-
-        home.file = {
-          # netsock: per-game multiplayer fix, only where it is asked for.
-          ".config/SLSsteam/tools/netsock/netsock.so" = lib.mkIf cfg.netsock.enable {
-            source = steamnetsock;
-          };
-        };
-
       };
     };
 }

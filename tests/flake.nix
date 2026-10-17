@@ -4,12 +4,6 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    # only for the standalone-Home-Manager configs (the legacy module output)
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     crab = {
       url = "path:.."; # the repo under test (this flake lives in tests/)
     };
@@ -19,7 +13,6 @@
     {
       self,
       nixpkgs,
-      home-manager,
       crab,
     }:
     let
@@ -29,21 +22,6 @@
         inherit system;
         config.allowUnfree = true;
       };
-
-      mkHome =
-        name: modules:
-        home-manager.lib.homeManagerConfiguration {
-          pkgs = freePkgs;
-          modules = modules ++ [
-            crab.homeModules.default
-            {
-              home.username = "tester";
-              home.homeDirectory = "/home/tester";
-              home.stateVersion = "25.05";
-              nixpkgs.config.allowUnfree = true;
-            }
-          ];
-        };
 
       testerUser = {
         users.users.tester = {
@@ -190,7 +168,6 @@
                 };
                 programs.nix-crab.luatools.enable = true;
                 programs.nix-crab.luatools.lumenService = true;
-                home-manager.users.nako.systemd.user.startServices = "suggest";
               }
             ];
 
@@ -202,12 +179,14 @@
           }
         ];
 
-        # two normal users + explicit user: works, for that user
+        # two normal users + explicit user: works, for that user (netsock makes
+        # an activation snippet, so the target user is observable)
         explicitUser = mkOs [
           twoUsers
           {
             programs.nix-crab.user = "bob";
             programs.nix-crab.tools.enable = true;
+            programs.nix-crab.netsock.enable = true;
           }
         ];
 
@@ -226,83 +205,91 @@
             programs.nix-crab.slssteam.enable = true;
           }
         ];
-      };
 
-      homeConfigurations = {
-        # legacy/standalone Home Manager output still works
-        bare = mkHome "bare" [ ];
-        upstreamCfg = mkHome "upstreamCfg" [
+        # `steam = true` sugar (bool shorthand for steam.enable)
+        steamSugar = mkOs [
           {
-            programs.nix-crab.slssteam = {
-              manageConfig = true;
-              settings = {
-                SmartTickets = 3;
-                IdleStatus = {
-                  AppId = 480;
-                  Title = "grinding";
-                };
-              };
-            };
-            programs.nix-crab.steam.config.enable = true;
+            programs.nix-crab.steam = true;
           }
         ];
 
-        # activation smoke test: runs for real against /tmp/hm-test
-        smoke = mkHome "smoke" [
-          (
-            { lib, ... }:
-            {
-              home.username = lib.mkForce "nako";
-              home.homeDirectory = lib.mkForce "/tmp/hm-test";
-              programs.nix-crab.slssteam = {
-                manageConfig = true;
-                moon.enable = true;
-                settings = {
-                  AppIds = [ 440 ];
-                };
-              };
-              programs.nix-crab.netsock = {
-                enable = true;
-                games = [ 1966720 ];
-              };
-              programs.nix-crab.tools.enable = true;
-              programs.nix-crab.luatools = {
-                enable = true;
-                lumenService = true;
-              };
-              programs.nix-crab.steam.config.enable = true;
-              systemd.user.startServices = "suggest";
-            }
-          )
+        # freeform passthrough: an upstream programs.steam option written
+        # under nix-crab.steam lands in programs.steam untouched
+        steamPassthrough = mkOs [
+          {
+            programs.nix-crab.steam = {
+              enable = true;
+              remotePlay.openFirewall = true;
+              protontricks.enable = true;
+              # function form: applied inside the Steam FHS environment
+              # `hello` is distinctive: steam's own FHS env never contains it
+              extraPkgs = p: with p; [ hello ];
+            };
+          }
         ];
+
+        # the config-writer scenarios, as plain NixOS config against
+        # /tmp/hm-test (test-writer.sh extracts and runs the activation text)
+        writerSmoke =
+          mkOs'
+            {
+              users.users.nako = {
+                isNormalUser = true;
+                home = "/tmp/hm-test";
+              };
+            }
+            [
+              {
+                programs.nix-crab = {
+                  slssteam = {
+                    manageConfig = true;
+                    moon.enable = true;
+                    settings.AppIds = [ 440 ];
+                  };
+                  netsock = {
+                    enable = true;
+                    games = [ 1966720 ];
+                  };
+                  tools.enable = true;
+                  luatools = {
+                    enable = true;
+                    lumenService = true;
+                  };
+                  steam.config.enable = true;
+                };
+              }
+            ];
 
         # minimal variant: the user declares FakeAppIds, so Nix owns it
-        smokeFake = mkHome "smokeFake" [
-          (
-            { lib, ... }:
+        writerFake =
+          mkOs'
             {
-              home.username = lib.mkForce "nako";
-              home.homeDirectory = lib.mkForce "/tmp/hm-test2";
-              programs.nix-crab.slssteam = {
-                manageConfig = true;
-                moon.enable = true;
-                settings.FakeAppIds = {
-                  "440" = 480;
-                };
+              users.users.nako = {
+                isNormalUser = true;
+                home = "/tmp/hm-test2";
               };
             }
-          )
-        ];
+            [
+              {
+                programs.nix-crab.slssteam = {
+                  manageConfig = true;
+                  moon.enable = true;
+                  settings.FakeAppIds = {
+                    "440" = 480;
+                  };
+                };
+              }
+            ];
 
         # must FAIL: settings without manageConfig
-        badSettings = mkHome "badSettings" [
+        badSettings = mkOs [
           {
             programs.nix-crab.slssteam.settings.AppIds = [ 440 ];
           }
         ];
 
         # must FAIL: netsock.games without steam-config-nix
-        badNetsock = mkHome "badNetsock" [
+        badNetsock = mkOs [
           {
             programs.nix-crab.netsock = {
               enable = true;
@@ -311,5 +298,6 @@
           }
         ];
       };
+
     };
 }

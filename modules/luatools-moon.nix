@@ -1,8 +1,9 @@
 # LuaTools feature (slsteam-moon's Lumen backend + plugin). Unit shape:
-# flake.nix takes `.module` (home module) and `.mkLumen`/`.mkLuatools`
+# flake.nix takes `.module` (NixOS module) and `.mkLumen`/`.mkLuatools`
 # (packages.lumen / packages.luatools) — same dists both places. Both dists
 # are upstream's own release zips (modules/upstream-binaries.nix), so this file
-# is only the home-side wiring.
+# is only the user-side wiring: packages via users.users.<user>, files via
+# activation snippets (modules/activate.nix) — no home-manager.
 { mkLumen, mkLuatools }:
 rec {
   module =
@@ -13,9 +14,10 @@ rec {
       ...
     }:
     let
+      inherit (import ./target.nix { inherit config lib; }) user home;
       cfg = config.programs.nix-crab.luatools;
 
-      lumenDir = "${config.xdg.dataHome}/Lumen";
+      lumenDir = "${home}/.local/share/Lumen";
       stampDir = "${lumenDir}/.nix-crab";
 
       # Same bits as `nix build .#lumen` / `.#luatools`.
@@ -23,7 +25,7 @@ rec {
       luatoolsDist = mkLuatools pkgs;
     in
     {
-      config = lib.mkIf cfg.enable {
+      config = lib.mkIf (cfg.enable && user != null) {
         assertions = [
           {
             # The LuaTools stack reads its game list from stplug-in/luaappids.yaml
@@ -40,7 +42,7 @@ rec {
           }
         ];
 
-        home.packages = [
+        environment.systemPackages = [
           # The activation-written ~/.local/share/Lumen/lumen shim execs
           # `steam-run` (the FHS sandbox the prebuilt Lumen binary needs), and
           # neither programs.steam nor anything else puts it on PATH — install it
@@ -108,115 +110,137 @@ rec {
         # attach). Upstream's slsteam-moon launcher wrapper touches this on every
         # Steam start; replicate that declaratively. Best-effort: only the roots
         # that exist on this system. A Steam restart is needed after creating it.
-        home.activation.luatoolsCefMarker = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-          touch "$HOME/.steam/steam/.cef-enable-remote-debugging" 2>/dev/null || true
-          touch "$HOME/.steam/debian-installation/.cef-enable-remote-debugging" 2>/dev/null || true
-        '';
+        system.activationScripts."nix-crab-luatools-cef" =
+          import ./activate.nix
+            {
+              inherit
+                lib
+                pkgs
+                user
+                home
+                ;
+            }
+            "luatools-cef"
+            ''
+              touch "$HOME/.steam/steam/.cef-enable-remote-debugging" 2>/dev/null || true
+              touch "$HOME/.steam/debian-installation/.cef-enable-remote-debugging" 2>/dev/null || true
+            '';
 
-        home.activation.luatoolsMoon = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-                # Re-sync only when the pinned input changes (nix flake update) or $4
-                # forces it. Kept separate from crabInstall so the install itself runs as
-                # a plain statement: a function called in an `if` condition has errexit
-                # disabled, and a failed copy would then be reported as "up to date".
-                crabNeedsSync() {
-                  src=$1 dir=$2 stamp=$3 force=''${4:-0}
-                  [ "$force" = 0 ] && [ -f "$stamp" ] \
-                    && [ "$(cat "$stamp")" = "$src" ] && [ -d "$dir" ] && return 1
-                  return 0
-                }
+        system.activationScripts."nix-crab-luatools" =
+          import ./activate.nix
+            {
+              inherit
+                lib
+                pkgs
+                user
+                home
+                ;
+            }
+            "luatools"
+            ''
+                    # Re-sync only when the pinned input changes (nix flake update) or $4
+                    # forces it. Kept separate from crabInstall so the install itself runs as
+                    # a plain statement: a function called in an `if` condition has errexit
+                    # disabled, and a failed copy would then be reported as "up to date".
+                    crabNeedsSync() {
+                      src=$1 dir=$2 stamp=$3 force=''${4:-0}
+                      [ "$force" = 0 ] && [ -f "$stamp" ] \
+                        && [ "$(cat "$stamp")" = "$src" ] && [ -d "$dir" ] && return 1
+                      return 0
+                    }
 
-                # Copy a store dist into a writable dir. Removes just the files the
-                # PREVIOUS dist installed -- the stamp holds its store path -- so the
-                # state these dists deliberately exclude survives an input bump:
-                # cef_port, notifications/, ryuu_index.json, luatools/ under Lumen, and
-                # backend/data, backend/temp_dl, the logs under the plugin.
-                crabInstall() {
-                  src=$1 dir=$2 stamp=$3
-                  # A leftover copy from the store (or a failed install) is read-only
-                  # (555) and would block the removal and the overwrite below; make it
-                  # writable first. chmod works on files you own even when they are not.
-                  run chmod -R u+w "$dir" 2>/dev/null || true
-                  if [ -f "$stamp" ] && old=$(cat "$stamp") && [ -d "$old" ]; then
-                    (cd "$old" && find . ! -type d) | while read -r f; do
-                      run rm -f "$dir/$f"
-                    done
-                  fi
-                  run mkdir -p "$dir"
-                  run cp -r "$src"/. "$dir"/
-                  run chmod -R u+w "$dir"
-                }
+                    # Copy a store dist into a writable dir. Removes just the files the
+                    # PREVIOUS dist installed -- the stamp holds its store path -- so the
+                    # state these dists deliberately exclude survives an input bump:
+                    # cef_port, notifications/, ryuu_index.json, luatools/ under Lumen, and
+                    # backend/data, backend/temp_dl, the logs under the plugin.
+                    crabInstall() {
+                      src=$1 dir=$2 stamp=$3
+                      # A leftover copy from the store (or a failed install) is read-only
+                      # (555) and would block the removal and the overwrite below; make it
+                      # writable first. chmod works on files you own even when they are not.
+                      run chmod -R u+w "$dir" 2>/dev/null || true
+                      if [ -f "$stamp" ] && old=$(cat "$stamp") && [ -d "$old" ]; then
+                        (cd "$old" && find . ! -type d) | while read -r f; do
+                          run rm -f "$dir/$f"
+                        done
+                      fi
+                      run mkdir -p "$dir"
+                      run cp -r "$src"/. "$dir"/
+                      run chmod -R u+w "$dir"
+                    }
 
-                # The stamp is written last, so an install that dies halfway is retried
-                # on the next switch instead of being recorded as current.
-                crabStamp() {
-                  run mkdir -p "${stampDir}"
-                  tmp=$(mktemp)
-                  printf '%s' "$1" > "$tmp"
-                  run install -m644 "$tmp" "$2"
-                  rm -f "$tmp"
-                }
+                    # The stamp is written last, so an install that dies halfway is retried
+                    # on the next switch instead of being recorded as current.
+                    crabStamp() {
+                      run mkdir -p "${stampDir}"
+                      tmp=$(mktemp)
+                      printf '%s' "$1" > "$tmp"
+                      run install -m644 "$tmp" "$2"
+                      rm -f "$tmp"
+                    }
 
-                src="${lumenDist}"
-                dir="${lumenDir}"
-                stamp="${stampDir}/lumen-src"
+                    src="${lumenDist}"
+                    dir="${lumenDir}"
+                    stamp="${stampDir}/lumen-src"
 
-                # The steam-run shim is written here rather than shipped in the dist, so a
-                # dir that lost it -- or predates the current shim -- has to be rebuilt
-                # even when the stamp still matches.
-                force=0
-                if [ ! -x "$dir/lumen" ] || ! grep -q 'env -u LD_AUDIT' "$dir/lumen" 2>/dev/null; then
-                  force=1
-                fi
+                    # The steam-run shim is written here rather than shipped in the dist, so a
+                    # dir that lost it -- or predates the current shim -- has to be rebuilt
+                    # even when the stamp still matches.
+                    force=0
+                    if [ ! -x "$dir/lumen" ] || ! grep -q 'env -u LD_AUDIT' "$dir/lumen" 2>/dev/null; then
+                      force=1
+                    fi
 
-                if crabNeedsSync "$src" "$dir" "$stamp" "$force"; then
-                  crabInstall "$src" "$dir" "$stamp"
-                  # Lumen's prebuilt ELF needs an FHS sandbox on NixOS. The upstream
-                  # installer renames the raw binary and drops a steam-run wrapper in its
-                  # place (install.sh, NixOS branch); do the same here. lumen.bin resolves
-                  # lua/ relative to its working directory, so the wrapper cd's into the
-                  # install dir first. LUMEN_BACKEND_DIR is how Lumen discovers the
-                  # LuaTools plugin backend (boot.lua only loads it when the variable is
-                  # set); without it every plugin call fails with "unknown method".
-                  #
-                  # The LD_AUDIT/LD_PRELOAD unset has to happen INSIDE steam-run: those
-                  # carry slsteam-moon's 32-bit hooks, and pkgs.steam's extraEnv lands in
-                  # the FHS rootfs /etc/profile, which steam-run sources -- so unsetting
-                  # them outside is a no-op and 64-bit Lumen plus every backend script it
-                  # spawns gets a round of "wrong ELF class" from ld.so. LD_LIBRARY_PATH
-                  # stays: inside the sandbox it is what makes the FHS libs resolvable.
-                  #
-                  # Do NOT run alejandra on this file: it re-indents the heredoc body and
-                  # its terminator, and <<'EOF' only ends on an EOF in column 0, so the
-                  # shim would swallow the rest of the activation. Breaks at switch time,
-                  # not at eval time.
-                  run rm -f "$dir/lumen.bin"
-                  run mv "$dir/lumen" "$dir/lumen.bin"
-                  cat > "$dir/lumen" <<'EOF'
-          #!/bin/sh
-          cd "$(dirname "$0")" || exit 1
-          export LUMEN_BACKEND_DIR="$PWD/luatools/backend"
-          export LUMEN_LUA_DIR="$PWD/lua"
-          exec steam-run env -u LD_AUDIT -u LD_PRELOAD ./lumen.bin "$@"
-          EOF
-                  run chmod +x "$dir/lumen"
-                  crabStamp "$src" "$stamp"
-                  echo "nix-crab: installed LuaTools (Lumen) to $dir"
-                else
-                  echo "nix-crab: LuaTools (Lumen) is up to date"
-                fi
+                    if crabNeedsSync "$src" "$dir" "$stamp" "$force"; then
+                      crabInstall "$src" "$dir" "$stamp"
+                      # Lumen's prebuilt ELF needs an FHS sandbox on NixOS. The upstream
+                      # installer renames the raw binary and drops a steam-run wrapper in its
+                      # place (install.sh, NixOS branch); do the same here. lumen.bin resolves
+                      # lua/ relative to its working directory, so the wrapper cd's into the
+                      # install dir first. LUMEN_BACKEND_DIR is how Lumen discovers the
+                      # LuaTools plugin backend (boot.lua only loads it when the variable is
+                      # set); without it every plugin call fails with "unknown method".
+                      #
+                      # The LD_AUDIT/LD_PRELOAD unset has to happen INSIDE steam-run: those
+                      # carry slsteam-moon's 32-bit hooks, and pkgs.steam's extraEnv lands in
+                      # the FHS rootfs /etc/profile, which steam-run sources -- so unsetting
+                      # them outside is a no-op and 64-bit Lumen plus every backend script it
+                      # spawns gets a round of "wrong ELF class" from ld.so. LD_LIBRARY_PATH
+                      # stays: inside the sandbox it is what makes the FHS libs resolvable.
+                      #
+                      # Do NOT run alejandra on this file: it re-indents the heredoc body and
+                      # its terminator, and <<'EOF' only ends on an EOF in column 0, so the
+                      # shim would swallow the rest of the activation. Breaks at switch time,
+                      # not at eval time.
+                      run rm -f "$dir/lumen.bin"
+                      run mv "$dir/lumen" "$dir/lumen.bin"
+                      cat > "$dir/lumen" <<'EOF'
+              #!/bin/sh
+              cd "$(dirname "$0")" || exit 1
+              export LUMEN_BACKEND_DIR="$PWD/luatools/backend"
+              export LUMEN_LUA_DIR="$PWD/lua"
+              exec steam-run env -u LD_AUDIT -u LD_PRELOAD ./lumen.bin "$@"
+              EOF
+                      run chmod +x "$dir/lumen"
+                      crabStamp "$src" "$stamp"
+                      echo "nix-crab: installed LuaTools (Lumen) to $dir"
+                    else
+                      echo "nix-crab: LuaTools (Lumen) is up to date"
+                    fi
 
-                # The plugin lives under Lumen's own luatools/ dir.
-                psrc="${luatoolsDist}"
-                pdir="${lumenDir}/luatools"
-                pstamp="${stampDir}/luatools-src"
-                if crabNeedsSync "$psrc" "$pdir" "$pstamp"; then
-                  crabInstall "$psrc" "$pdir" "$pstamp"
-                  crabStamp "$psrc" "$pstamp"
-                  echo "nix-crab: installed LuaTools plugin to $pdir"
-                else
-                  echo "nix-crab: LuaTools plugin is up to date"
-                fi
-        '';
+                    # The plugin lives under Lumen's own luatools/ dir.
+                    psrc="${luatoolsDist}"
+                    pdir="${lumenDir}/luatools"
+                    pstamp="${stampDir}/luatools-src"
+                    if crabNeedsSync "$psrc" "$pdir" "$pstamp"; then
+                      crabInstall "$psrc" "$pdir" "$pstamp"
+                      crabStamp "$psrc" "$pstamp"
+                      echo "nix-crab: installed LuaTools plugin to $pdir"
+                    else
+                      echo "nix-crab: LuaTools plugin is up to date"
+                    fi
+            '';
 
         # Systemd-managed alternative to the steam-wrapper sidecar (opt-in via
         # programs.nix-crab.luatools.lumenService). The unit starts at login and
@@ -224,17 +248,17 @@ rec {
         # (lua/cefport.lua), so it attaches as soon as Steam is up without the
         # wrapper timing anything. ExecStart points at the activation-written shim,
         # which is what makes Lumen runnable (steam-run sandbox, loader env unset).
+        # NixOS user-unit schema (flat wantedBy/serviceConfig — not home-manager's
+        # Unit/Service/Install sections); starts at login, like any NixOS user unit.
         systemd.user.services."nix-crab-lumen" = lib.mkIf config.programs.nix-crab.luatools.lumenService {
-          Unit = {
-            Description = "Lumen backend for LuaTools (slsteam-moon)";
-            After = [ "graphical-session.target" ];
-          };
-          Service = {
+          description = "Lumen backend for LuaTools (slsteam-moon)";
+          after = [ "graphical-session.target" ];
+          wantedBy = [ "default.target" ];
+          serviceConfig = {
             Type = "simple";
             ExecStart = "${lumenDir}/lumen";
             Restart = "on-failure";
           };
-          Install.WantedBy = [ "default.target" ];
         };
       };
     };

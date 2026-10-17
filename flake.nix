@@ -33,20 +33,12 @@
     millennium.url = "github:SteamClientHomebrew/Millennium?dir=packages/nix";
     millennium.inputs.nixpkgs.follows = "nixpkgs";
 
-    # Home Manager — an implementation detail, not something the user manages.
-    # The NixOS module imports it and drives home-manager.users.<user> from
-    # plain programs.nix-crab.* options, so everything applies in one
-    # `nixos-rebuild switch`.
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # steam-config-nix — declarative Steam configuration (launch options,
-    # compat tools, game files, non-Steam apps, ...). Its modules are
-    # re-exported by nixosModules.default / homeModules.default below, so the
-    # whole surface is `programs.steam.config.*`, gated on its own
-    # `programs.steam.config.enable` (default off, like everything else here).
+    # compat tools, game files, non-Steam apps, ...). Its NixOS module is
+    # re-exported by nixosModules.default below, so the whole surface is
+    # reachable as programs.nix-crab.steam.config.* (forwards verbatim to
+    # programs.steam.config), gated on its own `programs.steam.config.enable`
+    # (default off, like everything else here).
     steam-config-nix = {
       url = "github:different-name/steam-config-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -67,7 +59,6 @@
       steamnetsock,
       steamidra,
       millennium,
-      home-manager,
       steam-config-nix,
       enter-the-wired,
     }:
@@ -102,19 +93,6 @@
       # upstream.lock.json — a generated file, refreshed daily by
       # ci/update-binaries.sh. Nothing here is compiled.
       upstreamBinaries = import ./modules/upstream-binaries.nix { };
-
-      # The home-side config modules, in one place: homeModules.default imports
-      # them for standalone Home Manager, nixosModules.default forwards them
-      # into home-manager.users.<user>. Options are declared once, in
-      # home-options.nix, and imported on both sides separately.
-      homeConfigModules = [
-        homeUnit.module
-        ./modules/millennium-addons.nix
-        toolsUnit.module
-        luatoolsUnit.module
-        steamidraUnit.module
-        accelaUnit.module
-      ];
 
       # No package output is unfree — SLSsteam is AGPL-3.0 and injection happens
       # through the module option on the consumer's own pkgs, where Steam's
@@ -158,35 +136,33 @@
 
       # ------------------------------------------------------------------
       # Modules: opt-in, everything defaults to off. Import the module, then
-      # flip programs.nix-crab.*.enable for the software you want. The
-      # steam-config-nix modules are re-exported here (their own gate is
+      # flip programs.nix-crab.*.enable for the software you want. ONE module
+      # set, NixOS only: user-scoped features are applied by activation
+      # snippets and users.users.<user>.packages — home-manager is not an
+      # input, not a requirement, not referenced anywhere in this flake. The
+      # steam-config-nix module is re-exported here (its own gate is
       # programs.steam.config.enable, also off by default) so one import gets
       # the whole surface.
       # ------------------------------------------------------------------
       nixosModules.default = {
         imports = [
           steam-config-nix.nixosModules.default
-          home-manager.nixosModules.home-manager
-          ./modules/home-options.nix
+          ./modules/options.nix
+          ./modules/user.nix
           ./modules/netsock-bridge.nix
-          (import ./modules/nixos-home.nix { inherit homeConfigModules; })
           (import ./modules/millennium.nix {
             inherit millennium;
             inherit (upstreamBinaries) mkMillennium;
           })
           slssteamUnit.module
           downgradeUnit.module
+          homeUnit.module
+          toolsUnit.module
+          luatoolsUnit.module
+          steamidraUnit.module
+          accelaUnit.module
+          ./modules/millennium-addons.nix
         ];
-      };
-
-      homeModules.default = {
-        imports = [
-          steam-config-nix.homeModules.default
-          ./modules/home-options.nix
-          ./modules/steam-config.nix
-          ./modules/netsock-bridge.nix
-        ]
-        ++ homeConfigModules;
       };
 
       # `nix fmt`

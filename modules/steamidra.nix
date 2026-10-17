@@ -17,8 +17,8 @@ rec {
   # The 520 MiB AppImage is NOT fetched by Nix: SFF has no versionless asset
   # URL, so a Nix fetch would need a hand-bumped SRI hash for every release.
   # The launcher downloads exactly the locked version on first run. Uses $HOME
-  # so the package works imperatively; the home module's desktop entry points
-  # its Icon= at the absolute path from config.home.homeDirectory.
+  # so the package works imperatively; the activation-written desktop entry
+  # points its Icon= at the absolute path of the resolved user's home.
   mkSteamidra =
     pkgs:
     let
@@ -57,10 +57,11 @@ rec {
       ...
     }:
     let
-      # Absolute, not $HOME: this also lands in the .desktop Icon= path, which is
-      # not shell-expanded. (The launcher itself uses $HOME so the package output
-      # works imperatively too.)
-      dataDir = "${config.home.homeDirectory}/.local/share/SteaMidra";
+      inherit (import ./target.nix { inherit config lib; }) user home;
+
+      # Absolute, not $HOME: baked from the resolved user (the launcher itself
+      # uses $HOME so the package output works imperatively too).
+      dataDir = "${home}/.local/share/SteaMidra";
 
       steamidraLauncher = mkSteamidra pkgs;
 
@@ -76,8 +77,8 @@ rec {
       };
     in
     {
-      config = lib.mkIf config.programs.nix-crab.steamidra.enable {
-        home.packages = [
+      config = lib.mkIf (config.programs.nix-crab.steamidra.enable && user != null) {
+        environment.systemPackages = [
           pkgs.dotnetCorePackages.runtime_9_0
           steamidraLauncher
         ];
@@ -86,11 +87,25 @@ rec {
         # its own ~/.local/share/applications/steamidra.desktop on startup with
         # Exec pointing at the raw AppImage — which cannot run on NixOS (no
         # libfuse2). XDG_DATA_HOME is searched before the profile, so that broken
-        # entry would shadow ours. Own the path and force it back on every switch.
-        home.file.".local/share/applications/steamidra.desktop" = {
-          source = "${desktopItem}/share/applications/steamidra.desktop";
-          force = true;
-        };
+        # entry would shadow ours. Own the path and force it back on every
+        # activation.
+        system.activationScripts."nix-crab-steamidra" =
+          import ./activate.nix
+            {
+              inherit
+                lib
+                pkgs
+                user
+                home
+                ;
+            }
+            "steamidra"
+            ''
+              mkdir -p "$HOME/.local/share/applications"
+              ln -sfnT "${desktopItem}/share/applications/steamidra.desktop" \
+                "$HOME/.local/share/applications/steamidra.desktop"
+              own "$HOME/.local/share/applications"
+            '';
       };
     };
 }

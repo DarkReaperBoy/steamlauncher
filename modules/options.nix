@@ -1,11 +1,8 @@
-# The complete home-side option surface, declared once and shared by both
-# module sets:
-#
-#   homeModules.default  -> imported for standalone Home Manager users
-#   nixosModules.default -> imported at the NIXOS level, so the same options
-#                           can be written as plain NixOS config; the nixos
-#                           module then forwards them into
-#                           home-manager.users.<user> (see nixos-home.nix)
+# The complete nix-crab option surface (settings, netsock, tools, luatools,
+# millennium add-ons, accela, steamidra), declared once for the ONE module
+# set: nixosModules.default. There is no home-manager module output and no HM
+# anywhere behind this — user-scoped files are written by activation snippets
+# (modules/activate.nix) on every `nixos-rebuild switch`.
 #
 # This file declares options ONLY — no config. Every definition that needs a
 # home directory lives in the per-feature modules next to it.
@@ -33,7 +30,7 @@
     slssteam.moon.enable = lib.mkEnableOption ''
       slsteam-moon as the config merge base (programs.nix-crab.slssteam.
       settings is applied over slsteam-moon's default config instead of
-      upstream SLSsteam's). Set this together with the NixOS module's
+      upstream SLSsteam's). Set this together with
       programs.nix-crab.slssteam-moon.enable.
     '';
 

@@ -10,9 +10,10 @@ configuration, ACCELA, SteaMidra, netsock and a client-downgrade tool — writte
 - **One namespace.** Every knob lives under `programs.nix-crab.*`, including Steam itself and the
   whole per-game configuration surface. No `programs.steam` vs. `programs.nix-crab` split, no
   conflicts between the official Steam module and the patched one.
-- **One switch.** Home-directory files (SLSsteam config, netsock, Lumen, desktop entries, user
-  services) are configured through Home Manager, which this flake wires up and drives for you — you
-  never write Home Manager config, and `nixos-rebuild switch` applies everything.
+- **One switch, zero Home Manager.** Home-directory files (SLSsteam config, netsock, Lumen,
+  desktop entries, user services) are written by activation snippets during `nixos-rebuild switch`.
+  This flake has no home-manager input, no `homeModules` output, no second config language — one
+  flat NixOS block does everything.
 - **One default: off.** Import the module, flip what you want. Nothing installs itself, and every
   artefact is pinned — flake inputs, or `upstream.lock.json` for the release binaries.
 
@@ -56,7 +57,8 @@ programs.nix-crab = {
 ```
 
 That is the whole integration. Steam is enabled, injected and configured; the home directory is
-managed; no second module, no `home-manager` block, no `home.stateVersion` to pick. (Steam is
+managed by activation snippets; no second module, no `home-manager` import, no `home.stateVersion`
+to pick — home-manager is not part of this flake in any way. (Steam is
 unfree, so your usual `nixpkgs.config.allowUnfree = true` — or an `allowUnfreePredicate` covering
 `steam` — still applies; it is evaluated against *your* nixpkgs config, never this flake's.)
 
@@ -70,8 +72,8 @@ programs.nix-crab.user = "alice";
 ```
 
 Nothing is guessed on a multi-user machine, and nothing is configured for a user who was not
-chosen. Systems with no home-side option set at all are left completely untouched: Home Manager is
-not wired up for anybody until nix-crab is actually asked to manage something in a home.
+chosen. Systems with no user-scoped option set at all are left completely untouched: not a single
+nix-crab snippet runs until the flake is actually asked to write into a home.
 
 ---
 
@@ -84,6 +86,7 @@ Everything is off/null by default. `programs.nix-crab`:
 | `steam.enable` | system | Turns the Steam client on/off. `null` (default) = on as soon as a nix-crab feature needs it. |
 | `steam.package` | system | The Steam package everything is built on (default `pkgs.steam`, or Millennium's when `millennium.enable`). Injection is applied on top. |
 | `steam.extraCompatPackages` | system | Compatibility tools made available to Steam. |
+| `steam.extraPkgs` | system | Extra FHS libraries, fed into the single `steam.override` nix-crab performs (the old overlay workaround for this is gone). Plain list, or `p: [...]` applied inside the FHS environment. |
 | `steam.config.*` | system | **steam-config-nix**: per-game launch options, compat tools, Proton prefixes, beta branches, languages, winetricks, game files, artwork, non-Steam apps. Alias of upstream's `programs.steam.config`. |
 | `slssteam.enable` | system | Inject upstream SLSsteam (`LD_AUDIT` on the Steam package). |
 | `slssteam.extraEnv` | system | Extra environment variables on the Steam package. |
@@ -105,6 +108,13 @@ Everything is off/null by default. `programs.nix-crab`:
 | `user` | system | Which user the home-side options apply to (auto-detected with one normal user). |
 | `tools.enable` | home | `nix-crab-status` and `nix-crab-update` on PATH. |
 
+Anything else `programs.steam` accepts (`remotePlay.openFirewall`, `protontricks`,
+`dedicatedServer`, `gamescopeSession`, …) is written under `steam.*` freeform and forwarded
+untouched — upstream's types and docs stay authoritative.
+
+**“home”** in the table means: applied to the chosen user's home (or PATH) by an activation
+snippet during `nixos-rebuild switch`, as root, chowned over afterwards. No Home Manager.
+
 Misconfiguration fails at **eval time**, with the fix in the message:
 
 | Assertion | Trigger |
@@ -117,7 +127,6 @@ Misconfiguration fails at **eval time**, with the fix in the message:
 | `netsock.games` without `steam.config.enable` | nowhere to write the launch option |
 | `user` set to an unknown user | no such `users.users` entry |
 | home-side option set, user ambiguous | `programs.nix-crab.user` has to be named |
-| a new `programs.nix-crab.*` feature is unclassified | the module that decides where it applies must list it |
 
 ---
 
@@ -135,12 +144,13 @@ configuration.nix                      programs.nix-crab.*
 │  slssteam-moon│──► programs.steam.package = steamBase.override │
 │  millennium ─┘     { extraEnv.LD_AUDIT = library-inject:SLSsteam }│
 │                                                                │
-│  home-side options ──► home-manager.users.<user>  (internal)   │
+│  user-scoped options ─► system.activationScripts (nix-crab-*)  │
 │                        ├── config.yaml  (fork default ⊕ settings)│
 │                        ├── netsock.so + netsock.games wrappers │
 │                        ├── Lumen + LuaTools plugin             │
 │                        ├── ACCELA / SteaMidra desktop entries  │
 │                        └── Millennium plugins & themes         │
+│  tools/accela/… ──────► environment.systemPackages             │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -151,10 +161,12 @@ configuration.nix                      programs.nix-crab.*
 - **`steam.config.*` is an alias, not a fork.** It forwards to
   [steam-config-nix](https://github.com/different-name/steam-config-nix)'s `programs.steam.config`,
   which this flake re-exports unchanged — upstream's docs and option search apply 1:1.
-- **Home Manager is an implementation detail.** The same home-side options are declared at the
-  NixOS level and forwarded into `home-manager.users.<user>`, which the flake imports and
-  configures itself (global pkgs, `~/.nix-profile` packages). You can still ignore all of this and
-  use the [standalone Home Manager module](#standalone-home-manager) instead.
+- **No Home Manager — not even internally.** The flake has no home-manager input and no
+  `homeModules` output; user-scoped options are applied by activation snippets
+  (`system.activationScripts."nix-crab-*"`, target user auto-detected from `users.users`) and
+  `environment.systemPackages`. Packages deliberately do NOT go through `users.users.<user>`:
+  user detection reads `users.users`, and writing it from a user-dependent gate recurses
+  (home-manager#594, the same trap its own module documents).
 
 Two client stacks exist and they are mutually exclusive — both want Steam's CEF debugging endpoint:
 
@@ -169,18 +181,32 @@ Upstream SLSsteam (`slssteam.enable`) stacks with either, or with nothing.
 ## Steam
 
 ```nix
+programs.nix-crab.steam = true;   # shorthand — exactly `steam.enable = true`
+
 programs.nix-crab.steam = {
   enable = true;                                  # or leave null: on when a feature needs it
   package = pkgs.steam.override {                 # optional base; injection stacks on top
     extraEnv.MANGOHUD = true;
   };
+  extraPkgs = p: with p; [ libXcursor libXi ];    # FHS libs — one option, no overlay dance
   extraCompatPackages = [ pkgs.proton-ge-custom ];
+
+  remotePlay.openFirewall = true;                 # anything programs.steam accepts passes
+  protontricks.enable = true;                     # through untouched
 
   config = {                                      # steam-config-nix, see below
     enable = true;
   };
 };
 ```
+
+(`steam = true` is a *whole-value* shorthand: a bool can't carry keys, so use
+`steam.enable = true` when you set more.)
+
+**Why `extraPkgs` exists.** `programs.steam.package` is a `types.package` option — two definitions
+are an eval error, so extra FHS libraries used to require an `nixpkgs.overlays` workaround around
+the package. nix-crab performs the *single* override itself (injection env and extra libraries
+together), so the libraries live here and chain in with everything else.
 
 `programs.nix-crab.millennium.enable` swaps the default base for Millennium's own `millennium-steam`
 (a `steam.override` of its own), so a single `programs.steam.package` ends up carrying
@@ -463,30 +489,6 @@ documents it.
 
 ---
 
-## Standalone Home Manager
-
-You do not need this. If you *do* run Home Manager yourself, the home-side options are the same
-block, through `homeModules.default`:
-
-```nix
-# home.nix — same options, no `user`, no system side
-imports = [ inputs.nix-crab.homeModules.default ];
-
-programs.nix-crab = {
-  slssteam.manageConfig = true;
-  netsock.enable = true;
-  tools.enable = true;
-  steam.config.enable = true;          # the same alias, same as on the NixOS side
-};
-```
-
-Then the system side (injection, Millennium, downgrade) still comes from `nixosModules.default`,
-and `steam.*`/`slssteam.enable`/`slssteam-moon.enable`/`millennium.enable` stay in your NixOS
-config. Use one path or the other for a given user — not both, or the two would fight over the
-same files.
-
----
-
 ## Updating
 
 There are two kinds of update, and the repo tracks both.
@@ -511,13 +513,13 @@ runs that every day** (the `sync` job of `.github/workflows/ci.yml`) together wi
 anything moved — validated again by `nix flake check` on the PR. One daily cycle answers both "is
 it still working?" and "is it still newest?", with no binary cache of our own to maintain.
 
-**Git inputs.** The seven flake inputs — nixpkgs, home-manager, Millennium's overlay,
-steam-config-nix, enter-the-wired, SteaMidra's tag list, netsock's `releases/latest` — move with
+**Git inputs.** The six flake inputs — nixpkgs, Millennium's overlay, steam-config-nix,
+enter-the-wired, SteaMidra's tag list, netsock's `releases/latest` — move with
 `nix flake update`, and the daily sync runs that too. Locally it is just:
 
 ```
 nix flake update
-sudo nixos-rebuild switch    # applies system AND home in one go
+sudo nixos-rebuild switch    # applies everything in one go
 ```
 
 `nix-crab-update` does the same three steps (update → rebuild → status). The Steam client tracks
@@ -545,8 +547,7 @@ What this flake re-exports or consumes instead of reimplementing:
 
 | Upstream | Re-exported as |
 | -------- | -------------- |
-| [steam-config-nix](https://github.com/different-name/steam-config-nix) | `steam.config.*` (alias), NixOS + HM modules |
-| [home-manager](https://github.com/nix-community/home-manager) | the whole home side, driven from NixOS |
+| [steam-config-nix](https://github.com/different-name/steam-config-nix) | `steam.config.*` (alias), its NixOS module re-exported |
 | [Millennium](https://github.com/SteamClientHomebrew/Millennium) | its own Nix overlay (`millennium-steam`) + release binaries |
 | [SLSsteam](https://github.com/AceSLS/SLSsteam) | its own release binaries (`sls-steam`, grabbers) |
 | [slsteam-moon](https://github.com/swwayps/slsteam-moon), [Lumen](https://github.com/swwayps/lumen), [luatools-moon](https://github.com/swwayps/luatools-moon) | their release binaries (injection, Lumen, the plugin) |
@@ -562,18 +563,23 @@ sits in — no lock to refresh) and exercises the whole surface:
 
 ```bash
 cd tests
-./test-eval.sh    # eval assertions: forwarding, user detection, alias, the package knob,
-                  # and every bad* config must FAIL with the intended assertion message
-./test-writer.sh  # the config writer, activated for real in sandbox homes:
+./test-eval.sh    # eval assertions: the unified steam knob (sugar + passthrough),
+                  # user detection, the config alias, the activation snippets, a
+                  # proof that home-manager is absent entirely, and every bad* config
+                  # must FAIL with the intended assertion message
+./test-writer.sh  # the real activation text, run against sandbox homes:
                   # config.yaml merge, plugin keys carried over, netsock, Lumen,
-                  # ACCELA seed, Millennium add-ons, the NixOS-path activation
+                  # both NixOS-path writers, and extraPkgs landing in the FHS closure
 ```
 
-Coverage (31 evaluation checks + 38 writer/activation checks): `nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,smokeNixos,ambiguousUser,
-explicitUser,badCombo,badSteamOff}` and `homeConfigurations.{bare,upstreamCfg,smoke,smokeFake,
-badSettings,badNetsock}` — `bare` proves nothing turns itself on, `bad*` must fail evaluation with
-the right assertion message, and `full` proves `LD_AUDIT` and `MILLENNIUM_RUNTIME_PATH` end up on
-the same Steam package.
+Coverage (35 evaluation checks + 39 writer/activation checks):
+`nixosConfigurations.{bare,full,moon,steamOnly,steamPkg,steamSugar,steamPassthrough,smokeNixos,
+writerSmoke,writerFake,ambiguousUser,explicitUser,badCombo,badSteamOff,badSettings,badNetsock}` —
+`bare` proves nothing turns itself on and that home-manager is absent entirely, `bad*` must fail
+evaluation with the right assertion message, and `full` proves `LD_AUDIT` and
+`MILLENNIUM_RUNTIME_PATH` end up on the same Steam package. The writer suite extracts the real
+`system.activationScripts."nix-crab-*"` text and runs it through a driver that mirrors NixOS'
+activate script (same `ERR` trap, same nonzero-exit contract).
 
 CI is deliberately tiny. Everything heavy comes from upstream releases, so there is nothing to
 compile and nothing worth caching — a run is a Nix install plus an evaluation, **~30 seconds**, and
@@ -594,11 +600,11 @@ no Actions cache is used or created:
   throwaway account if that matters to you.
 - `SafeMode` is not set by this flake: it is meant for Steam Deck gamemode and can disable SLSsteam
   on desktop after a client update. `nix-crab-status` prints the value in effect.
-- Home Manager, once wired up, manages the chosen user's home (shell profile, session variables)
-  like any Home Manager setup does. `home-manager.useUserPackages` is deliberately left off —
-  auto-detecting the user reads `users.users`, and Home Manager writes `users.users` from
-  `home-manager.users` when that option is on (infinite recursion, home-manager#594). Set
-  `programs.nix-crab.user` explicitly if you want to turn it on.
+- User files are written during `nixos-rebuild switch`: the activation script runs as root, each
+  `nix-crab-*` snippet creates what it needs in the chosen user's home and hands it over with
+  `chown`. A failing snippet is recorded (the switch still finishes) and retried next time.
+- If you run Home Manager *yourself* for your own dotfiles, that stays your business — nix-crab
+  neither imports nor requires it, and none of its options live under `home-manager.users`.
 
 ## License
 
@@ -623,8 +629,6 @@ The projects this flake wires up — and the people behind them:
   workflow alive on Linux.
 - **[steam-config-nix](https://github.com/different-name/steam-config-nix)** — declarative Steam
   configuration, the piece that makes per-game behaviour expressible here at all.
-- **[Home Manager](https://github.com/nix-community/home-manager)** — the home side, driven from
-  NixOS so it never has to be managed by hand.
 - **[Millennium](https://github.com/SteamClientHomebrew/Millennium)** (Steam Homebrew) — client
   themes and plugins, and shipping a Nix package for it.
 - **[steamnetsock-patch](https://github.com/yesyes0649/steamnetsock-patch)** (yesyes0649) — the
