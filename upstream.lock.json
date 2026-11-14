@@ -14,21 +14,21 @@
   },
   "millennium": {
     "repo": "SteamClientHomebrew/Millennium",
-    "version": "v3.6.1",
+    "version": "v3.6.3",
     "asset": "millennium-{version}-linux-x86_64.tar.gz",
-    "hash": "sha256-AhWhl3mtkopTxelHdzBjaSrUCrWheboRlobeUVD7t2M=",
+    "hash": "sha256-nZpfhEjPkvRjTW6km1JjQJFXzM9baKj/EOliyNflLCg=",
     "sidecar": "millennium-{version}-linux-x86_64.sha256"
   },
   "slssteam": {
     "repo": "AceSLS/SLSsteam",
-    "version": "20261014151919",
+    "version": "20261112130346",
     "asset": "SLSsteam-Any-release.7z",
-    "hash": "sha256-tIozi/QzzU+jiU7aR411sBgNl68692OJioA/Hqk9ohE="
+    "hash": "sha256-jfbAF5PwnlqFdRa58MHgvqz7mW+xKNjqxt5sWFlK/TY="
   },
   "slsteam-moon": {
     "repo": "swwayps/slsteam-moon",
     "version": "v2.9",
     "asset": "slsteam-moon-linux-{ver}-lumen.zip",
-    "hash": "sha256-lchHAj7Ba3AtyMdKpRPHXgp/A46ycnJeGaBi4wvseLc="
+    "hash": "sha256-wF0jKMmQJnMpXNdsLimdyFOrdg/UcNZ9FTd+XBCZXHI="
   }
 }
