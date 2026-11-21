@@ -4,31 +4,31 @@
     "repo": "swwayps/luatools-moon",
     "version": "v2.9",
     "asset": "luatools-linux.zip",
-    "hash": "sha256-9N22fGa+ZhCINIhWNHZ89p589UKqfBIeoX9h0f78Ta4="
+    "hash": "sha256-UPiKiXgEE3r4JIpcDsPPiSgkMaVsQ78w40shA/Jg8nA="
   },
   "lumen": {
     "repo": "swwayps/lumen",
     "version": "v2.9",
     "asset": "lumen-linux.zip",
-    "hash": "sha256-eqDLf7am3cc7jVSN4/Tw1Y020Vi+DKj+MjcN0Q5B2qc="
+    "hash": "sha256-wi8mAcs/YO/8A6A9NTnOrU8NPNLHd4gpDobekJtOses="
   },
   "millennium": {
     "repo": "SteamClientHomebrew/Millennium",
-    "version": "v3.6.1",
+    "version": "v3.6.3",
     "asset": "millennium-{version}-linux-x86_64.tar.gz",
-    "hash": "sha256-AhWhl3mtkopTxelHdzBjaSrUCrWheboRlobeUVD7t2M=",
+    "hash": "sha256-nZpfhEjPkvRjTW6km1JjQJFXzM9baKj/EOliyNflLCg=",
     "sidecar": "millennium-{version}-linux-x86_64.sha256"
   },
   "slssteam": {
     "repo": "AceSLS/SLSsteam",
-    "version": "20261014151919",
+    "version": "20261112130346",
     "asset": "SLSsteam-Any-release.7z",
-    "hash": "sha256-tIozi/QzzU+jiU7aR411sBgNl68692OJioA/Hqk9ohE="
+    "hash": "sha256-jfbAF5PwnlqFdRa58MHgvqz7mW+xKNjqxt5sWFlK/TY="
   },
   "slsteam-moon": {
     "repo": "swwayps/slsteam-moon",
-    "version": "v2.9",
+    "version": "v3.0",
     "asset": "slsteam-moon-linux-{ver}-lumen.zip",
-    "hash": "sha256-lchHAj7Ba3AtyMdKpRPHXgp/A46ycnJeGaBi4wvseLc="
+    "hash": "sha256-9l03mFdtmyG1UWyhgnqEawuAInqpEUcO4qZ1shjvcHw="
   }
 }
